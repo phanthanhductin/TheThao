@@ -14,10 +14,23 @@ use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\StockController;
+use App\Http\Controllers\Api\AIController;
+use App\Http\Controllers\Api\Admin\ProductImportController;
+
+/* =======================
+   ===== IMPORT ADMIN =====
+   ======================= */
+Route::middleware(['auth:sanctum', 'abilities:admin'])->group(function () {
+    Route::post('/admin/products/import', [ProductImportController::class, 'import']);
+});
 
 /* =======================
    ===== PUBLIC API =====
    ======================= */
+
+// ===== STOCK (public xem) =====
+Route::get('/stock-movements', [StockController::class, 'index']);
 
 // ===== AUTH =====
 Route::post('/register', [AuthController::class, 'register']);
@@ -36,9 +49,9 @@ Route::get('/categories/{id}/products', [ProductController::class, 'byCategory']
 // ===== REVIEWS (public xem) =====
 Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
 
-// ===== ORDERS (public tracking + cancel + chi tiết) =====
-Route::get('/orders', [OrderController::class, 'index']); // FE gọi /orders?status=...
-Route::get('/orders/track', [OrderController::class, 'track']); // FE gọi /orders/track?code=...
+// ===== ORDERS (tracking + cancel + chi tiết) =====
+Route::get('/orders', [OrderController::class, 'index']);
+Route::get('/orders/track', [OrderController::class, 'track']);
 Route::get('/orders/{id}', [OrderController::class, 'show'])->whereNumber('id');
 Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel']);
 
@@ -50,9 +63,12 @@ Route::get('/posts/{idOrSlug}', [PostController::class, 'show']);
 
 // ===== PAYMENTS =====
 Route::post('/payments/momo/create', [PaymentController::class, 'createMoMo']);
-Route::post('/payments/momo/ipn',    [PaymentController::class, 'ipn']);    // callback
-Route::get('/payments/momo/return',  [PaymentController::class, 'return']); // trang kết quả
-Route::get('/payments/momo/check',   [PaymentController::class, 'check']);
+Route::post('/payments/momo/ipn', [PaymentController::class, 'ipn']);
+Route::get('/payments/momo/return', [PaymentController::class, 'return']);
+Route::get('/payments/momo/check', [PaymentController::class, 'check']);
+
+// ===== AI (PUBLIC) =====
+Route::post('/ai/chat', [AIController::class, 'chat']);
 
 /* ===========================
    ===== AUTH CUSTOMER =====
@@ -76,23 +92,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/reviews/{rid}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{rid}', [ReviewController::class, 'destroy']);
 });
-
 /* ===========================
    ===== ADMIN PANEL =====
    =========================== */
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     // ===== Categories =====
     Route::apiResource('categories', CategoryController::class)->except(['show']);
-
-    // 🗑️ Thùng rác danh mục
     Route::get('categories/trash', [CategoryController::class, 'trash']);
     Route::post('categories/restore/{id}', [CategoryController::class, 'restore']);
     Route::delete('categories/force/{id}', [CategoryController::class, 'forceDelete']);
 
     // ===== Products =====
-    Route::apiResource('products', ProductController::class)->except(['show']);
-
-    // 🗑️ Thùng rác sản phẩm
+    Route::get('products', [ProductController::class, 'adminIndex']);
+    // 👇 THÊM ROUTE SHOW CHO ADMIN (không xung đột với apiResource)
+    Route::get('products/{id}', [ProductController::class, 'adminShow'])->whereNumber('id');
+    Route::apiResource('products', ProductController::class)->except(['show', 'index']);
     Route::get('products/trash', [ProductController::class, 'trash']);
     Route::post('products/{id}/restore', [ProductController::class, 'restore']);
     Route::delete('products/{id}/force', [ProductController::class, 'forceDelete']);
@@ -113,11 +127,13 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 
     // ===== Contacts =====
     Route::apiResource('contacts', ContactController::class)->except(['create', 'edit']);
+    Route::any('contacts/{id}', [ContactController::class, 'adminUpdate']);
 
     // ===== Brands =====
     Route::post('brands', [BrandController::class, 'store']);
 
-    // ===== Reviews (Admin) =====
-    Route::get('products/{id}/reviews', [ReviewController::class, 'index']);
-    Route::post('products/{id}/reviews', [ReviewController::class, 'store']);
+    // ===== Stock Movements =====
+    Route::get('stock-movements', [StockController::class, 'adminIndex']);
+    Route::post('stock-movements', [StockController::class, 'store']);
+    Route::get('stock/summary', [StockController::class, 'summary']);
 });

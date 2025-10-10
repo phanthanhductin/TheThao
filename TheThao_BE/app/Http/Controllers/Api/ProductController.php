@@ -4,22 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
-use App\Models\Category; // ✅ dùng để dò danh mục theo keyword
+use App\Models\Category;
+use App\Models\Brand;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
-    // ===== helper (ADDED) =====
-    private function withThumbUrl($p)
-    {
-        if (!$p) return $p;
-        $p->thumbnail_url = $p->thumbnail ? asset('storage/' . $p->thumbnail) : null;
-        return $p;
-    }
-
+    /* =====================================================
+     *  Helpers
+     * ===================================================== */
     private function ensureUniqueSlug(string $slug, ?int $ignoreId = null): string
     {
         $base = Str::slug($slug);
@@ -37,42 +33,70 @@ class ProductController extends Controller
         return $try;
     }
 
-    // ===== Public APIs =====
+    /** Lưu file ảnh vào public/assets/images và TRẢ VỀ tên file ngắn (vd: balo.webp) */
+    private function saveThumbToPublic(\Illuminate\Http\UploadedFile $file): string
+    {
+        $orig = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $ext  = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+        $base = Str::slug($orig) ?: 'image';
+        // thêm hậu tố ngắn để tránh trùng, nhưng vẫn “đẹp”
+        $name = $base . '-' . Str::random(6) . '.' . $ext;
+
+        $dir = public_path('assets/images');
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+
+        // move vào public/assets/images
+        $file->move($dir, $name);
+
+        // DB CHỈ LƯU tên file ngắn
+        return $name;
+    }
+
+    /** Xoá ảnh cũ ở cả 2 nơi có thể tồn tại (storage/public và public/assets/images) */
+    private function deleteThumbIfExists(?string $thumb): void
+    {
+        if (!$thumb) return;
+
+        // 1) nếu là đường dẫn trong storage/public (dữ liệu cũ kiểu products/xxx.jpg)
+        if (Storage::disk('public')->exists($thumb)) {
+            Storage::disk('public')->delete($thumb);
+        }
+
+        // 2) nếu là file đặt trong public/assets/images với tên ngắn
+        $p1 = public_path('assets/images/' . ltrim($thumb, '/'));
+        if (is_file($p1)) @unlink($p1);
+
+        // 3) phòng trường hợp họ lưu cả đường dẫn assets/images/...
+        if (str_starts_with($thumb, 'assets/')) {
+            $p2 = public_path($thumb);
+            if (is_file($p2)) @unlink($p2);
+        }
+    }
+
+    /* =====================================================
+     *  PUBLIC APIs
+     * ===================================================== */
     public function index(Request $request)
     {
-        // ✅ Trả đủ trường cho FE/fallback
         $q = Product::with('brand:id,name')
             ->select([
-                'id',
-                'name',
-                'brand_id',
-                'category_id',
-                'price_root',
-                'price_sale',
-                DB::raw('price_sale as price'),
-                'thumbnail'
+                'id','name','slug','brand_id','category_id',
+                'price_root','price_sale', DB::raw('price_sale as price'),
+                'qty','thumbnail','status'
             ]);
 
-        /* ====== Lọc ====== */
-
-        // Keyword: keyword | q
+        // --- Lọc ---
         $kw = trim($request->query('keyword', $request->query('q', '')));
         if ($kw !== '') {
-            $kwSlug = Str::slug($kw); // "bóng rổ" -> "bong-ro"
-
-            // 🔍 Thử tìm danh mục có name/slug khớp keyword
+            $kwSlug = Str::slug($kw);
             $catIds = Category::query()
-                ->where(function ($w) use ($kw, $kwSlug) {
-                    $w->where('name', 'like', "%{$kw}%")
-                      ->orWhere('slug', 'like', "%{$kwSlug}%");
-                })
+                ->where('name', 'like', "%{$kw}%")
+                ->orWhere('slug', 'like', "%{$kwSlug}%")
                 ->pluck('id');
 
             if ($catIds->count() > 0) {
-                // ✅ Nếu keyword khớp danh mục -> CHỈ trả về sản phẩm thuộc các danh mục đó
                 $q->whereIn('category_id', $catIds->all());
             } else {
-                // Không khớp danh mục -> tìm theo tên/slug sản phẩm như thường lệ
                 $q->where(function ($x) use ($kw, $kwSlug) {
                     $x->where('name', 'like', "%{$kw}%")
                       ->orWhere('slug', 'like', "%{$kwSlug}%");
@@ -80,62 +104,38 @@ class ProductController extends Controller
             }
         }
 
-        // Danh mục (nếu người dùng chọn ở filter)
         if ($request->filled('category_id')) {
-            $q->where('category_id', (int) $request->query('category_id'));
+            $q->where('category_id', (int)$request->query('category_id'));
         }
 
-        // Khoảng giá theo giá hiệu lực (sale nếu có, không thì root)
         $priceExpr = DB::raw('COALESCE(price_sale, price_root)');
-        if ($request->filled('min_price')) {
-            $q->where($priceExpr, '>=', (float) $request->query('min_price'));
-        }
-        if ($request->filled('max_price')) {
-            $q->where($priceExpr, '<=', (float) $request->query('max_price'));
-        }
+        if ($request->filled('min_price')) $q->where($priceExpr, '>=', (float)$request->query('min_price'));
+        if ($request->filled('max_price')) $q->where($priceExpr, '<=', (float)$request->query('max_price'));
 
-        // Chỉ sản phẩm giảm giá
         if ($request->boolean('only_sale')) {
             $q->whereNotNull('price_root')
               ->whereNotNull('price_sale')
               ->whereColumn('price_sale', '<', 'price_root');
         }
 
-        // Chỉ còn hàng
         if ($request->boolean('in_stock')) {
-            $q->where(function ($x) {
-                $x->where('qty', '>', 0)
-                  ->orWhere('status', 'active')
-                  ->orWhere('status', 1);
-            });
+            $q->where(fn($x) => $x->where('qty', '>', 0)
+                                  ->orWhere('status', 'active')
+                                  ->orWhere('status', 1));
         }
 
-        /* ====== Sắp xếp ====== */
-        // sort = created_at:desc | price:asc | price:desc | name:asc | name:desc
-        [$field, $dir] = array_pad(explode(':', (string) $request->query('sort', 'created_at:desc'), 2), 2, 'asc');
+        // --- Sort ---
+        [$field, $dir] = array_pad(explode(':', (string)$request->query('sort', 'created_at:desc'), 2), 2, 'asc');
         $dir = strtolower($dir) === 'desc' ? 'desc' : 'asc';
+        if ($field === 'price')       $q->orderByRaw('COALESCE(price_sale, price_root) ' . $dir);
+        elseif ($field === 'name')    $q->orderBy('name', $dir);
+        elseif ($field === 'created_at') $q->orderBy('created_at', $dir);
+        else                          $q->orderBy('id', 'desc');
 
-        if ($field === 'price') {
-            $q->orderByRaw('COALESCE(price_sale, price_root) ' . $dir);
-        } elseif ($field === 'name') {
-            $q->orderBy('name', $dir);
-        } elseif ($field === 'created_at') {
-            $q->orderBy('created_at', $dir);
-        } else {
-            $q->orderBy('id', 'desc');
-        }
-
-        /* ====== Phân trang ====== */
-        $perPage = (int) $request->query('per_page', 12);
-        $perPage = max(1, min(100, $perPage));
-
+        $perPage = max(1, min(100, (int)$request->query('per_page', 12)));
         $products = $q->paginate($perPage);
 
-        // thumbnail_url
-        $products->getCollection()->transform(function ($p) {
-            return $this->withThumbUrl($p);
-        });
-
+        // Accessor trong Model sẽ tự sinh thumbnail_url đúng
         return $products->makeHidden(['brand','brand_id']);
     }
 
@@ -143,26 +143,13 @@ class ProductController extends Controller
     {
         $p = Product::with('brand:id,name')
             ->select([
-                'id',
-                'name',
-                'brand_id',
-                'category_id',
-                'price_root',
-                'price_sale',
-                DB::raw('price_sale as price'),
-                'thumbnail',
-                'detail',
-                'description',
-                // ✅ bổ sung 2 trường tồn kho
-                'qty',
-                'status',
-                
+                'id','name','slug','brand_id','category_id',
+                'price_root','price_sale', DB::raw('price_sale as price'),
+                'qty','status','thumbnail','description','detail'
             ])
             ->find($id);
 
         if (!$p) return response()->json(['message' => 'Not found'], 404);
-
-        $p = $this->withThumbUrl($p);
         return $p->makeHidden(['brand','brand_id']);
     }
 
@@ -170,103 +157,79 @@ class ProductController extends Controller
     {
         $items = Product::with('brand:id,name')
             ->where('category_id', $id)
-            ->select(['id','name','brand_id','price_sale as price','thumbnail'])
+            ->select(['id','name','slug','brand_id','price_sale as price','thumbnail'])
             ->latest('id')
             ->paginate(12);
-
-        $items->getCollection()->transform(function ($p) {
-            return $this->withThumbUrl($p);
-        });
 
         return $items->makeHidden(['brand','brand_id']);
     }
 
-    // ===== Admin APIs =====
-    public function adminIndex()
+    /* =====================================================
+     *  ADMIN APIs
+     * ===================================================== */
+    public function adminIndex(Request $request)
     {
-        $products = Product::with('brand:id,name')
+        $perPage = max(1, min(100, (int)$request->query('per_page', 10)));
+        $scope   = $request->query('scope', 'active');
+
+        $q = Product::with('brand:id,name')
             ->select([
-                'id','name','slug','brand_id',
-                'price_root','price_sale','qty','thumbnail'
+                'id','name','slug','brand_id','price_root','price_sale',
+                DB::raw('COALESCE(qty,0) as qty'),'thumbnail'
             ])
-            ->latest('id')
-            ->paginate(5);
+            ->latest('id');
 
-        $products->getCollection()->transform(function ($p) {
-            return $this->withThumbUrl($p);
-        });
+        if ($scope === 'with_trash') $q->withTrashed();
+        elseif ($scope === 'only_trash') $q->onlyTrashed();
 
+        $products = $q->paginate($perPage)->appends($request->query());
         return $products->makeHidden(['brand','brand_id']);
     }
 
-    // ⭐ Admin - xem chi tiết sản phẩm
-// ⭐ Admin - xem chi tiết sản phẩm
-public function adminShow($id)
-{
-    $p = Product::with('brand:id,name')
-        ->select([
-            'id',
-            'name',
-            'slug',
-            'brand_id',
-            'category_id',
-            'price_root',
-            'price_sale',
-            'qty',
-            'status',
-            'thumbnail',
-            'detail',
-            'description',
-            'created_at',
-            'updated_at'
-        ])
-        ->find($id);
+    public function adminShow($id)
+    {
+        $p = Product::with('brand:id,name')
+            ->select([
+                'id','name','slug','brand_id','category_id',
+                'price_root','price_sale', DB::raw('COALESCE(price_sale, price_root) as price'),
+                'qty','status','thumbnail','description','detail',
+                'created_at','updated_at'
+            ])
+            ->find($id);
 
-    if (!$p) {
-        return response()->json(['message' => 'Product not found'], 404);
+        if (!$p) return response()->json(['message' => 'Product not found'], 404);
+        return response()->json(['message' => 'OK', 'data' => $p]);
     }
-
-    // ✅ Bổ sung thumbnail_url
-    $p = $this->withThumbUrl($p);
-
-    return response()->json([
-        'message' => 'OK',
-        'data' => $p
-    ]);
-}
-
-
-
 
     public function store(Request $request)
     {
-        $data = $request->validate([
+        $brandTable = (new Brand)->getTable();
+        $catTable   = (new Category)->getTable();
+
+        $validated = $request->validate([
             'name'        => 'required|string|max:255',
             'slug'        => 'nullable|string|max:255',
-            'brand_id'    => 'nullable|integer',
-            'category_id' => 'nullable|integer',
-            'price_root'  => 'nullable|numeric',
-            'price_sale'  => 'nullable|numeric',
-            'qty'         => 'nullable|integer',
+            'brand_id'    => ["nullable","integer","exists:{$brandTable},id"],
+            'category_id' => ["nullable","integer","exists:{$catTable},id"],
+            'price_root'  => 'required|numeric|min:0',
+            'price_sale'  => 'nullable|numeric|min:0',
+            'qty'         => 'required|integer|min:0',
             'detail'      => 'nullable|string',
             'description' => 'nullable|string',
-            'thumbnail'   => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'thumbnail'   => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
-        $nameForSlug = $data['name'] ?? '';
-        $givenSlug   = $data['slug'] ?? '';
-        $data['slug'] = $this->ensureUniqueSlug($givenSlug !== '' ? $givenSlug : $nameForSlug);
+        $slug = $this->ensureUniqueSlug($validated['slug'] ?? $validated['name']);
+        $data = array_merge($validated, ['slug' => $slug]);
 
         if ($request->hasFile('thumbnail')) {
-            $path = $request->file('thumbnail')->store('products', 'public');
-            $data['thumbnail'] = $path;
+            // LƯU VÀO public/assets/images, DB chỉ là tên ngắn
+            $data['thumbnail'] = $this->saveThumbToPublic($request->file('thumbnail'));
         }
 
         $product = Product::create($data);
-        $product = $this->withThumbUrl($product);
-
         return response()->json([
-            'message' => 'Thêm sản phẩm thành công',
+            'message' => 'Tạo sản phẩm thành công',
             'data'    => $product
         ], 201);
     }
@@ -286,7 +249,7 @@ public function adminShow($id)
             'qty'         => 'nullable|integer',
             'detail'      => 'nullable|string',
             'description' => 'nullable|string',
-            'thumbnail'   => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'thumbnail'   => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
 
         if (array_key_exists('slug', $data)) {
@@ -297,15 +260,14 @@ public function adminShow($id)
         }
 
         if ($request->hasFile('thumbnail')) {
-            if ($product->thumbnail) {
-                Storage::disk('public')->delete($product->thumbnail);
-            }
-            $data['thumbnail'] = $request->file('thumbnail')->store('products', 'public');
+            // xoá ảnh cũ ở cả 2 nơi
+            $this->deleteThumbIfExists($product->thumbnail);
+
+            // lưu ảnh mới vào public/assets/images và chỉ lưu tên
+            $data['thumbnail'] = $this->saveThumbToPublic($request->file('thumbnail'));
         }
 
         $product->update($data);
-        $product = $this->withThumbUrl($product);
-
         return response()->json([
             'message' => 'Cập nhật thành công',
             'data'    => $product
@@ -313,38 +275,42 @@ public function adminShow($id)
     }
 
     public function destroy($id)
-{
-    $product = Product::find($id);
-    if (!$product) return response()->json(['message' => 'Not found'], 404);
+    {
+        $product = Product::find($id);
+        if (!$product) return response()->json(['message' => 'Not found'], 404);
 
-    $product->delete(); // ✅ chỉ soft delete
-    return response()->json(['message' => 'Đã chuyển sản phẩm vào thùng rác']);
-}
-// ✅ Lấy danh sách trong thùng rác
-public function trash()
-{
-    $trash = Product::onlyTrashed()->orderByDesc('deleted_at')->get();
-    $trash->transform(fn($p) => $this->withThumbUrl($p));
-    return response()->json(['data' => $trash]);
-}
+        $used = DB::table('ptdt_orderdetail')->where('product_id', $id)->exists();
+        if ($used) {
+            return response()->json(['message' => '❌ Không thể xóa sản phẩm này vì đang có trong đơn hàng!'], 400);
+        }
 
-// ✅ Khôi phục sản phẩm
-public function restore($id)
-{
-    $p = Product::onlyTrashed()->find($id);
-    if (!$p) return response()->json(['message' => 'Không tìm thấy sản phẩm trong thùng rác'], 404);
-    $p->restore();
-    return response()->json(['message' => 'Đã khôi phục sản phẩm!']);
-}
+        $product->delete();
+        return response()->json(['message' => 'Đã chuyển sản phẩm vào thùng rác']);
+    }
 
-// ✅ Xóa vĩnh viễn
-public function forceDelete($id)
-{
-    $p = Product::onlyTrashed()->find($id);
-    if (!$p) return response()->json(['message' => 'Không tìm thấy sản phẩm trong thùng rác'], 404);
-    if ($p->thumbnail) Storage::disk('public')->delete($p->thumbnail);
-    $p->forceDelete();
-    return response()->json(['message' => 'Đã xoá vĩnh viễn sản phẩm!']);
-}
+    public function trash()
+    {
+        $trash = Product::onlyTrashed()->orderByDesc('deleted_at')->get();
+        return response()->json(['data' => $trash]);
+    }
 
+    public function restore($id)
+    {
+        $p = Product::onlyTrashed()->find($id);
+        if (!$p) return response()->json(['message' => 'Không tìm thấy sản phẩm trong thùng rác'], 404);
+        $p->restore();
+        return response()->json(['message' => 'Đã khôi phục sản phẩm!']);
+    }
+
+    public function forceDelete($id)
+    {
+        $p = Product::onlyTrashed()->find($id);
+        if (!$p) return response()->json(['message' => 'Không tìm thấy sản phẩm trong thùng rác'], 404);
+
+        // xoá file vật lý nếu có
+        $this->deleteThumbIfExists($p->thumbnail);
+
+        $p->forceDelete();
+        return response()->json(['message' => 'Đã xoá vĩnh viễn sản phẩm!']);
+    }
 }

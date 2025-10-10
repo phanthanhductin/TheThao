@@ -1,8 +1,26 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import DOMPurify from "dompurify";
 
 const HOST = "http://127.0.0.1:8000";
 const API_BASE = `${HOST}/api`;
+const IMG_FALLBACK = "https://placehold.co/120x90?text=No+Img";
+
+// Render mô tả HTML an toàn + preview ngắn gọn (~3 dòng)
+function DescCell({ html }) {
+  const safe = DOMPurify.sanitize(html || "");
+  return (
+    <div
+      style={{
+        maxWidth: 420,
+        maxHeight: 64,
+        overflow: "hidden",
+        lineHeight: "20px",
+      }}
+      dangerouslySetInnerHTML={{ __html: safe }}
+    />
+  );
+}
 
 export default function Categories() {
   const [rows, setRows] = useState([]);
@@ -23,7 +41,14 @@ export default function Categories() {
 
         const data = await res.json();
         const list = Array.isArray(data) ? data : data.data ?? [];
-        setRows(list);
+
+        // Chuẩn hóa nhẹ ảnh (nếu BE trả 'image' thì tự tạo url)
+        const normalized = list.map((c) => ({
+          ...c,
+          image_url: c.image_url || (c.image ? `${HOST}/storage/${c.image}` : null),
+        }));
+
+        setRows(normalized);
       } catch (e) {
         if (e.name !== "AbortError") setErr("Không tải được danh mục.");
       } finally {
@@ -62,6 +87,7 @@ export default function Categories() {
       }
 
       setRows((prev) => prev.filter((x) => x.id !== id));
+      setSelected((prev) => prev.filter((x) => x !== id));
     } catch (e) {
       console.error(e);
       alert(e.message || "Không xóa được danh mục.");
@@ -73,11 +99,16 @@ export default function Categories() {
     if (!selected.length) return;
     if (!window.confirm(`Chuyển ${selected.length} danh mục vào thùng rác?`)) return;
 
+    // Thực hiện tuần tự để đơn giản (có thể tối ưu song song nếu cần)
     for (const id of selected) {
+      // eslint-disable-next-line no-await-in-loop
       await handleDelete(id);
     }
     setSelected([]);
   };
+
+  // Tick all
+  const allChecked = rows.length > 0 && selected.length === rows.length;
 
   return (
     <section style={{ padding: 20 }}>
@@ -87,9 +118,11 @@ export default function Categories() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
         }}
       >
-        <h1 style={{ fontSize: 24 }}>Quản lý danh mục</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Quản lý danh mục</h1>
         <div>
           <button
             onClick={() => navigate("/admin/categories/add")}
@@ -158,11 +191,9 @@ export default function Categories() {
                   <input
                     type="checkbox"
                     onChange={(e) =>
-                      setSelected(
-                        e.target.checked ? rows.map((r) => r.id) : []
-                      )
+                      setSelected(e.target.checked ? rows.map((r) => r.id) : [])
                     }
-                    checked={selected.length === rows.length && rows.length > 0}
+                    checked={allChecked}
                   />
                 </th>
                 <th align="left">ID</th>
@@ -194,7 +225,7 @@ export default function Categories() {
                   <td>{c.slug}</td>
                   <td align="center">
                     <img
-                      src={c.image_url || `${HOST}/storage/${c.image}`}
+                      src={c.image_url || (c.image ? `${HOST}/storage/${c.image}` : IMG_FALLBACK)}
                       alt={c.name}
                       style={{
                         width: 60,
@@ -202,14 +233,18 @@ export default function Categories() {
                         objectFit: "cover",
                         borderRadius: 4,
                       }}
+                      onError={(e) => {
+                        e.currentTarget.src = IMG_FALLBACK;
+                      }}
                     />
                   </td>
-                  <td>{c.description}</td>
+                  <td>
+                    {/* ✅ render HTML an toàn thay vì hiển thị chuỗi thô */}
+                    <DescCell html={c.description} />
+                  </td>
                   <td align="center">
                     <button
-                      onClick={() =>
-                        navigate(`/admin/categories/edit/${c.id}`)
-                      }
+                      onClick={() => navigate(`/admin/categories/edit/${c.id}`)}
                       style={{
                         padding: "4px 10px",
                         marginRight: 4,
