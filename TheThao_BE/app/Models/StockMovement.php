@@ -2,27 +2,37 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class StockMovement extends Model
 {
-    protected $table = 'stock_movements';
-    protected $primaryKey = 'id';
-    public $timestamps = false; // chỉ dùng created_at của DB
+    use HasFactory;
 
+    protected $table = 'stock_movements';
+
+    // Khớp đúng với controller
     protected $fillable = [
         'product_id',
-        'type',
-        'qty_change',
-        'ref_type',
-        'ref_id',
+        'type',        // import|export|return|adjust
+        'qty_change',  // số thay đổi (+/-)
         'note',
+        'ref_type',    // manual, order, ...
+        'ref_id',
         'created_by',
-        'created_at',
     ];
+
+    // Bảng có timestamps
+    public $timestamps = true;
 
     public function product()
     {
-        return $this->belongsTo(\App\Models\Product::class, 'product_id');
+        return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    // created_by -> user
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

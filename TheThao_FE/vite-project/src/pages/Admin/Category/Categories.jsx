@@ -135,7 +135,7 @@ export default function Categories() {
               cursor: "pointer",
             }}
           >
-            + Add
+            + Thêm
           </button>
 
           <button

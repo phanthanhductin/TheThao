@@ -1,29 +1,69 @@
 // src/pages/Customers/Cart.jsx
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 const PLACEHOLDER = "https://placehold.co/90x68?text=No+Image";
 const fmt = (n) => (Number(n) || 0).toLocaleString("vi-VN");
 
+
 export default function Cart({ cart, setCart }) {
   const navigate = useNavigate();
+
+  // 👇 Lắng nghe khi trang khác phát 'cart:clear' hoặc khi localStorage 'cart' đổi
+  useEffect(() => {
+    const syncFromLS = () => {
+      try {
+        const items = JSON.parse(localStorage.getItem("cart") || "[]");
+        setCart(Array.isArray(items) ? items : []);
+      } catch { setCart([]); }
+    };
+    const onStorage = (e) => { if (e.key === "cart") syncFromLS(); };
+    window.addEventListener("cart:clear", syncFromLS);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("cart:clear", syncFromLS);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [setCart]);
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
   const increaseQty = (id) => {
-    setCart((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it))
-    );
+    const next = cart.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it));
+    setCart(next);
+    localStorage.setItem("cart", JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent("cart-changed", {
+      detail: next.reduce((s,i)=>s+(Number(i.qty)||0),0)
+    }));
   };
+
   const decreaseQty = (id) => {
-    setCart((prev) =>
-      prev.map((it) =>
-        it.id === id && it.qty > 1 ? { ...it, qty: it.qty - 1 } : it
-      )
+    const next = cart.map((it) =>
+      it.id === id && it.qty > 1 ? { ...it, qty: it.qty - 1 } : it
     );
+    setCart(next);
+    localStorage.setItem("cart", JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent("cart-changed", {
+      detail: next.reduce((s,i)=>s+(Number(i.qty)||0),0)
+    }));
   };
-  const removeItem = (id) => setCart((prev) => prev.filter((it) => it.id !== id));
+
+  const removeItem = (id) => {
+    const next = cart.filter((it) => it.id !== id);
+    setCart(next);
+    localStorage.setItem("cart", JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent("cart-changed", {
+      detail: next.reduce((s,i)=>s+(Number(i.qty)||0),0)
+    }));
+  };
+
   const clearCart = () => {
-    if (window.confirm("Bạn có chắc muốn xoá toàn bộ giỏ hàng?")) setCart([]);
+    if (window.confirm("Bạn có chắc muốn xoá toàn bộ giỏ hàng?")) {
+      setCart([]);
+      localStorage.setItem("cart", "[]");
+      window.dispatchEvent(new Event("cart:clear"));
+      window.dispatchEvent(new CustomEvent("cart-changed", { detail: 0 }));
+    }
   };
 
   return (
@@ -253,4 +293,3 @@ function StyleTag() {
     `}</style>
   );
 }
-

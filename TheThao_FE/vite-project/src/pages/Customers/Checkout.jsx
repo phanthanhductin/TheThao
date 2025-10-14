@@ -55,9 +55,11 @@ export default function Checkout({ setCart }) {
       alert("✅ Đặt hàng thành công!" + (orderCode ? " Mã đơn: " + orderCode : ""));
       if (orderCode) localStorage.setItem("last_order_code", String(orderCode));
 
-      // xóa giỏ (state + localStorage tuỳ app bạn)
+      // xóa giỏ (state + localStorage)
       setCart([]);
       localStorage.setItem("cart", "[]");
+      window.dispatchEvent(new Event("cart:clear"));
+      window.dispatchEvent(new CustomEvent("cart-changed", { detail: 0 }));
 
       if (orderCode) {
         navigate(`/track?code=${encodeURIComponent(orderCode)}`, { replace: true });
@@ -128,7 +130,6 @@ export default function Checkout({ setCart }) {
       setLoading(false);
     }
   };
-
   return (
     <div style={{ maxWidth: 800, margin: "30px auto", padding: 20 }}>
       <h2 style={{ marginBottom: 20, color: "#388e3c" }}>🧾 Thanh toán</h2>

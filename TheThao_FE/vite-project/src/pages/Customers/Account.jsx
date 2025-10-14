@@ -588,9 +588,10 @@ export default function AccountOverview() {
             />
             {/* ✅ thêm thẻ so sánh */}
             <InsightCard
-              title="So sánh sản phẩm"
-              value={`${compareCount} sản phẩm`}
-              hint={<Link to="/compare">Xem chi tiết</Link>}
+              title="Sản phẩm yêu thích"
+             value="—"
+             
+              hint={<Link to="/wishlist">Xem chi tiết</Link>}
               color="emerald"
             />
           </div>

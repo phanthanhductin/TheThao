@@ -1,49 +1,50 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Models\Wishlist;
+use App\Models\Product;
+use Illuminate\Support\Facades\Auth;
 
 class WishlistController extends Controller
 {
-    // Trả về danh sách product_id user đã thích
-    public function index(Request $request) {
-        $uid = $request->user()->id ?? null;
-        if (!$uid) return response()->json(['message' => 'Unauthenticated'], 401);
+    public function index()
+    {
+        $user = Auth::user();
+        $items = Wishlist::with('product')
+            ->where('user_id', $user->id)
+            ->latest()
+            ->get();
 
-        $ids = DB::table('wishlists')
-            ->where('user_id', $uid)
-            ->pluck('product_id');
-
-        return ['product_ids' => $ids];
+        return response()->json([
+            'data' => $items->pluck('product')
+        ]);
     }
 
-    // Toggle like/unlike
-    public function toggle(Request $request, $productId) {
-        $uid = $request->user()->id ?? null;
-        if (!$uid) return response()->json(['message' => 'Unauthenticated'], 401);
+    public function toggle($product_id)
+    {
+        $user = Auth::user();
+        $existing = Wishlist::where('user_id', $user->id)
+            ->where('product_id', $product_id)
+            ->first();
 
-        $exists = DB::table('wishlists')
-            ->where('user_id', $uid)
-            ->where('product_id', $productId)
-            ->exists();
-
-        if ($exists) {
-            DB::table('wishlists')
-                ->where('user_id', $uid)
-                ->where('product_id', $productId)
-                ->delete();
-            return ['status' => 'removed'];
+        if ($existing) {
+            $existing->delete();
+            return response()->json(['liked' => false]);
         } else {
-            DB::table('wishlists')->insert([
-                'user_id'    => $uid,
-                'product_id' => $productId,
-                'created_at' => now(),
-                'updated_at' => now(),
+            Wishlist::create([
+                'user_id' => $user->id,
+                'product_id' => $product_id,
             ]);
-            return ['status' => 'added'];
+            return response()->json(['liked' => true]);
         }
+    }
+
+    public function clear()
+    {
+        $user = Auth::user();
+        Wishlist::where('user_id', $user->id)->delete();
+        return response()->json(['message' => 'Wishlist cleared']);
     }
 }

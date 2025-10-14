@@ -74,4 +74,31 @@ class ReviewController extends Controller
             'can_review' => $hasPurchased && !$hasReviewed,
         ]);
     }
+
+
+public function destroy($rid)
+{
+    $user = auth('sanctum')->user();
+    if (!$user) {
+        return response()->json(['error' => 'Unauthorized'], 401);
+    }
+
+    $review = \App\Models\Review::find($rid);
+    if (!$review) {
+        return response()->json(['error' => 'Review not found'], 404);
+    }
+
+    if ($review->user_id !== $user->id) {
+        return response()->json(['error' => 'You cannot delete this review'], 403);
+    }
+
+    try {
+        $review->delete();
+        return response()->json(['message' => 'Review deleted successfully']);
+    } catch (\Throwable $e) {
+        \Log::error('Error deleting review: ' . $e->getMessage());
+        return response()->json(['error' => 'Server error while deleting review'], 500);
+    }
+}
+
 }

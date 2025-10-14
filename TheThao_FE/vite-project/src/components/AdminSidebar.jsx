@@ -52,7 +52,7 @@ export default function AdminSidebar() {
           Quản Lý Người Dùng
         </NavLink> */}
         <NavLink to="/admin/stock-movements" style={linkStyle}>
-                  Quản Lý ton kho
+                  Quản Lý Tồn Kho
                 </NavLink>
 
       </nav>

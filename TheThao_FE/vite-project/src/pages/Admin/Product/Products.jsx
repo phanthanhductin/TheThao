@@ -1,4 +1,6 @@
-// import { useEffect, useMemo, useState } from "react";
+
+
+// import { useEffect, useMemo, useRef, useState } from "react";
 // import { useNavigate } from "react-router-dom";
 
 // const API_ROOT = "http://127.0.0.1:8000";       // không có /api
@@ -35,6 +37,7 @@
 //   const [stockLoading, setStockLoading] = useState(false);
 //   const [err, setErr] = useState("");
 //   const [deletingId, setDeletingId] = useState(null);
+//   const [deletingMany, setDeletingMany] = useState(false); // ✅ thêm state xoá nhiều
 //   const [selected, setSelected] = useState([]);
 //   const [viewItem, setViewItem] = useState(null);
 
@@ -47,6 +50,13 @@
 //     total: 0,
 //     per_page: 10,
 //   });
+
+//   // 🔁 Reload sau import
+//   const [reload, setReload] = useState(0);
+
+//   // ⬆️ Import Excel states
+//   const [importing, setImporting] = useState(false);
+//   const fileInputRef = useRef(null);
 
 //   const navigate = useNavigate();
 
@@ -122,7 +132,7 @@
 //     })();
 
 //     return () => ac.abort();
-//   }, [page, perPage]);
+//   }, [page, perPage, reload]);
 
 //   // ===== Helper tồn kho =====
 //   const getQty = (p) => {
@@ -132,10 +142,12 @@
 //     return Number(p?.qty ?? 0);
 //   };
 
-//   // ===== Xoá sản phẩm =====
-//   async function handleDelete(id) {
+//   // ===== Xoá sản phẩm (có chế độ silent) =====
+//   async function handleDelete(id, { silent = false } = {}) {
 //     const token = localStorage.getItem("admin_token");
-//     if (!window.confirm("Bạn chắc chắn muốn xoá sản phẩm này?")) return;
+//     if (!silent) {
+//       if (!window.confirm("Bạn chắc chắn muốn xoá sản phẩm này?")) return false;
+//     }
 //     try {
 //       setDeletingId(id);
 //       const res = await fetch(`${API_BASE}/admin/products/${id}`, {
@@ -155,20 +167,82 @@
 //         delete n[id];
 //         return n;
 //       });
-//       alert("✅ Đã chuyển sản phẩm vào thùng rác");
+
+//       if (!silent) alert("✅ Đã chuyển sản phẩm vào thùng rác");
+//       return true;
 //     } catch (err) {
 //       console.error(err);
-//       alert(`❌ Lỗi xoá: ${err.message}`);
+//       if (!silent) alert(`❌ Lỗi xoá: ${err.message}`);
+//       return false;
 //     } finally {
 //       setDeletingId(null);
 //     }
 //   }
 
+//   // ===== Xoá nhiều sản phẩm (chỉ alert 1 lần) =====
 //   async function handleBulkDelete() {
-//     if (!selected.length) return alert("Chưa chọn sản phẩm nào");
+//     if (!selected.length) {
+//       alert("Chưa chọn sản phẩm nào");
+//       return;
+//     }
 //     if (!window.confirm(`Xoá ${selected.length} sản phẩm?`)) return;
-//     for (const id of selected) await handleDelete(id);
+
+//     setDeletingMany(true);
+//     let ok = 0;
+//     const fail = [];
+
+//     for (const id of selected) {
+//       const okOne = await handleDelete(id, { silent: true });
+//       if (okOne) ok++;
+//       else fail.push(id);
+//     }
+
+//     setDeletingMany(false);
 //     setSelected([]);
+
+//     if (ok && fail.length === 0) {
+//       alert(`✅ Đã xoá ${ok} sản phẩm.`);
+//     } else if (ok && fail.length > 0) {
+//       alert(`⚠️ Thành công ${ok}, thất bại ${fail.length}: ${fail.join(", ")}`);
+//     } else {
+//       alert("❌ Không xoá được sản phẩm nào.");
+//     }
+//   }
+
+//   // ===== Import Excel =====
+//   async function handleImport(file) {
+//     const token = localStorage.getItem("admin_token");
+//     try {
+//       setImporting(true);
+//       const form = new FormData();
+//       form.append("file", file);
+//       form.append("mode", "upsert"); // create-only | update-only | upsert
+
+//       const res = await fetch(`${API_BASE}/admin/products/import`, {
+//         method: "POST",
+//         headers: { Authorization: `Bearer ${token}` },
+//         body: form,
+//       });
+//       const data = await res.json();
+//       if (!res.ok) throw new Error(data.message || "Import thất bại");
+
+//       alert(
+//         `✔ Import xong:
+// - Thêm: ${data.inserted}
+// - Cập nhật: ${data.updated}
+// - Bỏ qua: ${data.skipped}
+// ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
+//       );
+
+//       // Reload list sau import
+//       setReload((x) => x + 1);
+//       setPage(1);
+//     } catch (e) {
+//       alert(`❌ Lỗi import: ${e.message}`);
+//     } finally {
+//       setImporting(false);
+//       if (fileInputRef.current) fileInputRef.current.value = "";
+//     }
 //   }
 
 //   // ===== Lọc cục bộ theo tên/slug (trên TRANG hiện tại) =====
@@ -281,19 +355,111 @@
 //           >
 //             + Add
 //           </button>
+
+//           {/* ====== Import / Template / Export ====== */}
+//           <button
+//             onClick={async () => {
+//               // Tạo input ẩn động khi click nút
+//               const input = document.createElement("input");
+//               input.type = "file";
+//               input.accept = ".xlsx,.xls,.csv";
+//               input.onchange = async (e) => {
+//                 if (!e.target.files?.length) return;
+//                 const file = e.target.files[0];
+//                 const fd = new FormData();
+//                 fd.append("file", file);
+
+//                 const token = localStorage.getItem("authToken") || localStorage.getItem("token") || "";
+//                 try {
+//                   const res = await fetch("http://127.0.0.1:8000/api/admin/products/import", {
+//                     method: "POST",
+//                     headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+//                     body: fd,
+//                   });
+//                   const j = await res.json();
+//                   if (!res.ok) throw new Error(j.message || "Import lỗi");
+//                   alert("✅ " + (j.message || "Import thành công"));
+//                   // Reload lại danh sách nếu cần
+//                   // setPage(1);
+//                 } catch (err) {
+//                   alert("❌ " + err.message);
+//                 } finally {
+//                   e.target.value = ""; // cho phép chọn lại cùng file lần sau
+//                 }
+//               };
+//               input.click();
+//             }}
+//             style={{
+//               padding: "8px 12px",
+//               borderRadius: 10,
+//               border: "none",
+//               background: "#2563eb",
+//               color: "#fff",
+//               cursor: "pointer",
+//               fontWeight: 700,
+//             }}
+//           >
+//             ⬆ Import Excel
+//           </button>
+
+//           <button
+//             onClick={async () => {
+//               const token = localStorage.getItem("authToken") || localStorage.getItem("token") || "";
+//               try {
+//                 const res = await fetch("http://127.0.0.1:8000/api/admin/products/export", {
+//                   method: "GET",
+//                   headers: {
+//                     Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+//                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+//                   },
+//                 });
+//                 if (!res.ok) throw new Error("Export thất bại");
+//                 const blob = await res.blob();
+//                 const url = window.URL.createObjectURL(blob);
+//                 const a = document.createElement("a");
+//                 a.href = url;
+//                 a.download = "products_export.xlsx";
+//                 a.click();
+//                 window.URL.revokeObjectURL(url);
+//               } catch (err) {
+//                 alert("❌ " + err.message);
+//               }
+//             }}
+//             style={{
+//               padding: "8px 12px",
+//               borderRadius: 10,
+//               border: "none",
+//               background: "#10b981",
+//               color: "#fff",
+//               cursor: "pointer",
+//               fontWeight: 700,
+//             }}
+//           >
+//             ⬇ Export Excel
+//           </button>
+
+//           <input
+//             ref={fileInputRef}
+//             type="file"
+//             accept=".xlsx,.xls,.csv"
+//             className="hidden"
+//             onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])}
+//             style={{ display: "none" }}
+//           />
+
 //           <button
 //             onClick={handleBulkDelete}
-//             disabled={!selected.length}
+//             disabled={deletingMany || !selected.length}
 //             style={{
 //               padding: "8px 12px",
 //               borderRadius: 8,
 //               border: "1px solid #e11d48",
-//               background: selected.length ? "#e11d48" : "#fca5a5",
+//               background: selected.length && !deletingMany ? "#e11d48" : "#fca5a5",
 //               color: "#fff",
-//               cursor: selected.length ? "pointer" : "not-allowed",
+//               cursor: selected.length && !deletingMany ? "pointer" : "not-allowed",
 //             }}
 //           >
-//             🗑 Xoá chọn ({selected.length})
+//             {deletingMany ? "Đang xoá…" : `🗑 Xoá chọn (${selected.length})`}
 //           </button>
 //           <button
 //             onClick={() => navigate("/admin/products/trash")}
@@ -410,16 +576,16 @@
 //                       </button>
 //                       <button
 //                         onClick={() => handleDelete(p.id)}
-//                         disabled={deletingId === p.id}
+//                         disabled={deletingId === p.id || deletingMany}
 //                         style={{
 //                           padding: "4px 10px",
 //                           background:
-//                             deletingId === p.id ? "#ef9a9a" : "#c62828",
+//                             deletingId === p.id || deletingMany ? "#ef9a9a" : "#c62828",
 //                           color: "#fff",
 //                           border: 0,
 //                           borderRadius: 6,
 //                           cursor:
-//                             deletingId === p.id ? "not-allowed" : "pointer",
+//                             deletingId === p.id || deletingMany ? "not-allowed" : "pointer",
 //                         }}
 //                       >
 //                         {deletingId === p.id ? "Đang xoá..." : "🗑 Xóa"}
@@ -651,11 +817,9 @@
 //     minWidth: 40,
 //   };
 // }
-
-
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx"; // ✅ dùng để đọc Excel
 
 const API_ROOT = "http://127.0.0.1:8000";       // không có /api
 const API_BASE = `${API_ROOT}/api`;             // có /api
@@ -664,6 +828,10 @@ const PLACEHOLDER = "https://placehold.co/120x90?text=No+Img";
 // 👉 URL tổng hợp tồn kho theo IDs (ưu tiên DB)
 const STOCK_SUMMARY_URL = (ids) =>
   `${API_BASE}/admin/stock/summary?product_ids=${ids.join(",")}`;
+
+// 👉 URL tổng hợp thương hiệu & danh mục theo IDs (từ bảng ptdt_product - nếu BE hỗ trợ)
+const BRAND_CATEGORY_SUMMARY_URL = (ids) =>
+  `${API_BASE}/admin/ptdt_product/brand-category?product_ids=${ids.join(",")}`;
 
 /** Helper: trích đúng object paginator dù BE trả trực tiếp hay bọc trong {data: {...}} */
 function pickPaginator(payload) {
@@ -683,6 +851,42 @@ function pickPaginator(payload) {
   return { data: [], current_page: 1, last_page: 1, total: 0, per_page: 10 };
 }
 
+// ==== Helpers cho Import Preview ====
+function toSlug(str = "") {
+  return String(str)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+// Map header linh hoạt -> key chuẩn của BE
+const HEADER_MAP = {
+  "name": "name", "tên": "name", "ten": "name",
+  "slug": "slug",
+  "brand_id": "brand_id", "brand": "brand_id", "thương hiệu": "brand_id", "thuonghieu": "brand_id",
+  "category_id": "category_id", "category": "category_id", "danh mục": "category_id", "danhmuc": "category_id",
+  "price_root": "price_root", "giá gốc": "price_root", "giagoc": "price_root",
+  "price_sale": "price_sale", "giá sale": "price_sale", "giasale": "price_sale",
+  "qty": "qty", "số lượng": "qty", "soluong": "qty",
+  "description": "description", "mô tả": "description", "mota": "description",
+  "detail": "detail", "chi tiết": "detail", "chitiet": "detail",
+  "status": "status", "trạng thái": "status", "trangthai": "status",
+  "thumbnail_url": "thumbnail_url", "thumbnail": "thumbnail_url", "ảnh": "thumbnail_url", "anh": "thumbnail_url",
+};
+
+function normalizeHeaders(rawObj) {
+  const out = {};
+  Object.keys(rawObj || {}).forEach((k) => {
+    const key = String(k || "").trim().toLowerCase();
+    const mapped = HEADER_MAP[key];
+    if (mapped) out[mapped] = rawObj[k];
+  });
+  return out;
+}
+
 export default function Products() {
   const [items, setItems] = useState([]);     // danh sách sản phẩm (trang hiện tại)
   const [stocks, setStocks] = useState({});   // map { [productId]: qty }
@@ -691,6 +895,7 @@ export default function Products() {
   const [stockLoading, setStockLoading] = useState(false);
   const [err, setErr] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [deletingMany, setDeletingMany] = useState(false); // ✅ thêm state xoá nhiều
   const [selected, setSelected] = useState([]);
   const [viewItem, setViewItem] = useState(null);
 
@@ -710,6 +915,16 @@ export default function Products() {
   // ⬆️ Import Excel states
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
+
+  // ==== Import Preview states ====
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState([]); // [{rowIndex, data:{...}, errors:[]}]
+  const [originalFile, setOriginalFile] = useState(null);
+  const [showOnlyErrors, setShowOnlyErrors] = useState(false);
+
+  // ✅ NEW: map thương hiệu & danh mục theo product_id (ưu tiên lấy từ DB ptdt_product)
+  const [brandCats, setBrandCats] = useState({}); // { [id]: { brand_name, category_name, brand_id, category_id } }
+  const [brandCatLoading, setBrandCatLoading] = useState(false);
 
   const navigate = useNavigate();
 
@@ -753,6 +968,7 @@ export default function Products() {
         // ===== Sau khi có product ids -> gọi tổng hợp tồn kho từ DB =====
         const ids = (Array.isArray(list) ? list : []).map((x) => x.id).filter(Boolean);
         if (ids.length) {
+          // Tồn kho
           try {
             setStockLoading(true);
             const res2 = await fetch(STOCK_SUMMARY_URL(ids), {
@@ -772,13 +988,39 @@ export default function Products() {
           } finally {
             setStockLoading(false);
           }
+
+          // ✅ NEW: Thương hiệu & Danh mục từ ptdt_product (nếu BE hỗ trợ)
+          try {
+            setBrandCatLoading(true);
+            const res3 = await fetch(BRAND_CATEGORY_SUMMARY_URL(ids), {
+              signal: ac.signal,
+              headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            if (res3.ok) {
+              const bc = await res3.json();
+              const mapBC = bc?.data ?? {};
+              setBrandCats(mapBC);
+            } else {
+              setBrandCats({}); // fallback
+            }
+          } catch {
+            setBrandCats({});
+          } finally {
+            setBrandCatLoading(false);
+          }
         } else {
           setStocks({});
+          setBrandCats({});
         }
       } catch (e) {
         if (e.name !== "AbortError") setErr("Không tải được danh sách sản phẩm.");
         setItems([]);
         setMeta({ current_page: 1, last_page: 1, total: 0, per_page: perPage });
+        setStocks({});
+        setBrandCats({});
       } finally {
         setLoading(false);
       }
@@ -795,10 +1037,34 @@ export default function Products() {
     return Number(p?.qty ?? 0);
   };
 
-  // ===== Xoá sản phẩm =====
-  async function handleDelete(id) {
+  // ✅ NEW: Helper thương hiệu / danh mục (ưu tiên DB map; rồi tới dữ liệu sẵn có trong sản phẩm)
+  const getBrandName = (p) => {
+    const id = p?.id;
+    const fromMap = id != null ? brandCats[id] : null;
+    return (
+      fromMap?.brand_name ??
+      p?.brand_name ??
+      p?.brand?.name ??
+      (p?.brand_id != null ? `#${p.brand_id}` : "")
+    );
+  };
+  const getCategoryName = (p) => {
+    const id = p?.id;
+    const fromMap = id != null ? brandCats[id] : null;
+    return (
+      fromMap?.category_name ??
+      p?.category_name ??
+      p?.category?.name ??
+      (p?.category_id != null ? `#${p.category_id}` : "")
+    );
+  };
+
+  // ===== Xoá sản phẩm (có chế độ silent) =====
+  async function handleDelete(id, { silent = false } = {}) {
     const token = localStorage.getItem("admin_token");
-    if (!window.confirm("Bạn chắc chắn muốn xoá sản phẩm này?")) return;
+    if (!silent) {
+      if (!window.confirm("Bạn chắc chắn muốn xoá sản phẩm này?")) return false;
+    }
     try {
       setDeletingId(id);
       const res = await fetch(`${API_BASE}/admin/products/${id}`, {
@@ -818,23 +1084,54 @@ export default function Products() {
         delete n[id];
         return n;
       });
-      alert("✅ Đã chuyển sản phẩm vào thùng rác");
+      setBrandCats((prev) => {
+        const n = { ...prev };
+        delete n[id];
+        return n;
+      });
+
+      if (!silent) alert("✅ Đã chuyển sản phẩm vào thùng rác");
+      return true;
     } catch (err) {
       console.error(err);
-      alert(`❌ Lỗi xoá: ${err.message}`);
+      if (!silent) alert(`❌ Lỗi xoá: ${err.message}`);
+      return false;
     } finally {
       setDeletingId(null);
     }
   }
 
+  // ===== Xoá nhiều sản phẩm (chỉ alert 1 lần) =====
   async function handleBulkDelete() {
-    if (!selected.length) return alert("Chưa chọn sản phẩm nào");
+    if (!selected.length) {
+      alert("Chưa chọn sản phẩm nào");
+      return;
+    }
     if (!window.confirm(`Xoá ${selected.length} sản phẩm?`)) return;
-    for (const id of selected) await handleDelete(id);
+
+    setDeletingMany(true);
+    let ok = 0;
+    const fail = [];
+
+    for (const id of selected) {
+      const okOne = await handleDelete(id, { silent: true });
+      if (okOne) ok++;
+      else fail.push(id);
+    }
+
+    setDeletingMany(false);
     setSelected([]);
+
+    if (ok && fail.length === 0) {
+      alert(`✅ Đã xoá ${ok} sản phẩm.`);
+    } else if (ok && fail.length > 0) {
+      alert(`⚠️ Thành công ${ok}, thất bại ${fail.length}: ${fail.join(", ")}`);
+    } else {
+      alert("❌ Không xoá được sản phẩm nào.");
+    }
   }
 
-  // ===== Import Excel =====
+  // ===== Import Excel (LUỒNG CŨ - GIỮ LẠI, nhưng nay dùng luồng Preview mới) =====
   async function handleImport(file) {
     const token = localStorage.getItem("admin_token");
     try {
@@ -867,6 +1164,169 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  // ====== LUỒNG MỚI: Preview + Validate + Confirm Import ======
+  function validateRow(d, idx, allRows) {
+    const errors = [];
+
+    const price_root = Number(d.price_root ?? 0);
+    const price_sale = Number(d.price_sale ?? 0);
+    const qty = Number.isFinite(Number(d.qty)) ? Number(d.qty) : d.qty;
+
+    if (!d.name || String(d.name).trim() === "") errors.push("Thiếu tên (name)");
+    if (!d.slug || String(d.slug).trim() === "") errors.push("Thiếu slug (đã auto-gợi ý)");
+    if (d.brand_id === undefined || d.brand_id === "") errors.push("Thiếu brand_id");
+    if (d.category_id === undefined || d.category_id === "") errors.push("Thiếu category_id");
+
+    if (isNaN(price_root) || price_root < 0) errors.push("price_root phải là số ≥ 0");
+    if (isNaN(price_sale) || price_sale < 0) errors.push("price_sale phải là số ≥ 0");
+    if (!Number.isInteger(Number(qty)) || Number(qty) < 0) errors.push("qty phải là số nguyên ≥ 0");
+
+    if (!isNaN(price_root) && !isNaN(price_sale) && price_sale > price_root) {
+      errors.push("price_sale không được lớn hơn price_root");
+    }
+
+    const curSlug = (d.slug || "").toString().trim().toLowerCase();
+    if (curSlug) {
+      const dupIndex = allRows.findIndex((r, i2) =>
+        i2 !== idx && (r.data.slug || "").toString().trim().toLowerCase() === curSlug
+      );
+      if (dupIndex !== -1) errors.push(`Slug trùng ở dòng ${dupIndex + 2}`);
+    }
+
+    return errors;
+  }
+
+  async function handleFileSelected(file) {
+    try {
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      let rows = json.map((raw, i) => {
+        const d = normalizeHeaders(raw);
+        if (!d.slug && d.name) d.slug = toSlug(d.name);
+        if (d.price_root !== undefined) d.price_root = Number(d.price_root || 0);
+        if (d.price_sale !== undefined) d.price_sale = Number(d.price_sale || 0);
+        if (d.qty !== undefined) d.qty = Number.isFinite(Number(d.qty)) ? Number(d.qty) : 0;
+        if (typeof d.status === "string") {
+          const s = d.status.trim().toLowerCase();
+          d.status = ["1","true","active","đang bán","dang ban"].includes(s) ? 1 : 0;
+        }
+        return { rowIndex: i, data: d, errors: [] };
+      });
+
+      rows = rows.map((r, idx) => ({ ...r, errors: validateRow(r.data, idx, rows) }));
+      rows.sort((a, b) => (b.errors.length > 0) - (a.errors.length > 0));
+
+      setPreviewRows(rows);
+      setOriginalFile(file);
+      setPreviewOpen(true);
+    } catch (e) {
+      alert("Không đọc được file Excel: " + e.message);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function updateCell(idx, key, value) {
+    setPreviewRows((prev) => {
+      const copy = prev.map((r) => ({ ...r, data: { ...r.data }, errors: [...r.errors] }));
+      copy[idx].data[key] = value;
+      if (key === "name" && (!copy[idx].data.slug || copy[idx].data.slug.trim() === "")) {
+        copy[idx].data.slug = toSlug(value);
+      }
+      copy[idx].errors = validateRow(copy[idx].data, idx, copy);
+      copy.sort((a, b) => (b.errors.length > 0) - (a.errors.length > 0));
+      return copy;
+    });
+  }
+
+  function deleteRow(idx) {
+    setPreviewRows((prev) => {
+      const copy = prev.slice();
+      copy.splice(idx, 1);
+      return copy
+        .map((r, i) => ({ ...r, errors: validateRow(r.data, i, copy) }))
+        .sort((a, b) => (b.errors.length > 0) - (a.errors.length > 0));
+    });
+  }
+
+  function hasAnyError(rows = previewRows) {
+    return rows.some((r) => r.errors?.length);
+  }
+
+  function toCSV(rows) {
+    // xuất CSV theo thứ tự cột chuẩn
+    const headers = [
+      "name","slug","brand_id","category_id",
+      "price_root","price_sale","qty",
+      "description","detail","status","thumbnail_url"
+    ];
+    const esc = (v) => {
+      const s = v == null ? "" : String(v);
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const lines = [];
+    lines.push(headers.join(","));
+    rows.forEach(({ data }) => {
+      const row = headers.map((h) => esc(data[h] ?? ""));
+      lines.push(row.join(","));
+    });
+    // BOM để Excel hiểu UTF-8
+    return "\uFEFF" + lines.join("\n");
+  }
+
+  async function confirmImportValidRows() {
+    const validRows = previewRows.filter((r) => !r.errors?.length);
+    if (!validRows.length) {
+      alert("Không có dòng hợp lệ để import.");
+      return;
+    }
+
+    const token = localStorage.getItem("admin_token");
+    try {
+      setImporting(true);
+
+      const csv = toCSV(validRows);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const file = new File([blob], (originalFile?.name?.replace(/\.[^.]+$/,"") || "import") + "_clean.csv", { type: blob.type });
+
+      const form = new FormData();
+      form.append("file", file);
+      form.append("mode", "upsert");
+
+      const res = await fetch(`${API_BASE}/admin/products/import`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Import thất bại");
+
+      alert(
+        `✔ Import xong:
+- Thêm: ${data.inserted}
+- Cập nhật: ${data.updated}
+- Bỏ qua: ${data.skipped}
+${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
+      );
+
+      setPreviewOpen(false);
+      setPreviewRows([]);
+      setOriginalFile(null);
+
+      // Reload list
+      setReload((x) => x + 1);
+      setPage(1);
+    } catch (e) {
+      alert(`❌ Lỗi import: ${e.message}`);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -934,7 +1394,9 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
         }}
       >
         <h1 style={{ fontSize: 24, fontWeight: 700 }}>
-          Quản lý sản phẩm {stockLoading ? "· đang tải tồn kho…" : ""}
+          Quản lý sản phẩm
+          {stockLoading ? " · đang tải tồn kho…" : ""}
+          {brandCatLoading ? " · đang tải thương hiệu/danh mục…" : ""}
         </h1>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -978,78 +1440,84 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
               cursor: "pointer",
             }}
           >
-            + Add
+            + Thêm
           </button>
 
           {/* ====== Import / Template / Export ====== */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
             style={{
               padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid #4f46e5",
-              background: importing ? "#a5b4fc" : "#4f46e5",
+              borderRadius: 10,
+              border: "none",
+              background: "#2563eb",
               color: "#fff",
-              cursor: importing ? "not-allowed" : "pointer",
+              cursor: "pointer",
+              fontWeight: 700,
             }}
-            title="Nhập Excel (.xlsx/.xls/.csv)"
           >
-            {importing ? "Đang nhập..." : "Import"}
+            ⬆ Import Excel
           </button>
 
-          <a
-            href={`${API_BASE}/admin/products/template`}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={async () => {
+              const token = localStorage.getItem("authToken") || localStorage.getItem("token") || "";
+              try {
+                const res = await fetch("http://127.0.0.1:8000/api/admin/products/export", {
+                  method: "GET",
+                  headers: {
+                    Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                });
+                if (!res.ok) throw new Error("Export thất bại");
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "products_export.xlsx";
+                a.click();
+                window.URL.revokeObjectURL(url);
+              } catch (err) {
+                alert("❌ " + err.message);
+              }
+            }}
             style={{
               padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid #ddd",
-              background: "#fff",
-              color: "#111",
-              textDecoration: "none",
+              borderRadius: 10,
+              border: "none",
+              background: "#10b981",
+              color: "#fff",
+              cursor: "pointer",
+              fontWeight: 700,
             }}
           >
-            Tải mẫu
-          </a>
+            ⬇ Export Excel
+          </button>
 
-          <a
-            href={`${API_BASE}/admin/products/export`}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid #ddd",
-              background: "#fff",
-              color: "#111",
-              textDecoration: "none",
-            }}
-          >
-            Export
-          </a>
-
+          {/* input ẩn dùng cho Preview Import */}
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.xls,.csv"
             className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])}
+            onChange={(e) => e.target.files?.[0] && handleFileSelected(e.target.files[0])}
             style={{ display: "none" }}
           />
 
           <button
             onClick={handleBulkDelete}
-            disabled={!selected.length}
+            disabled={deletingMany || !selected.length}
             style={{
               padding: "8px 12px",
               borderRadius: 8,
               border: "1px solid #e11d48",
-              background: selected.length ? "#e11d48" : "#fca5a5",
+              background: selected.length && !deletingMany ? "#e11d48" : "#fca5a5",
               color: "#fff",
-              cursor: selected.length ? "pointer" : "not-allowed",
+              cursor: selected.length && !deletingMany ? "pointer" : "not-allowed",
             }}
           >
-            🗑 Xoá chọn ({selected.length})
+            {deletingMany ? "Đang xoá…" : `🗑 Xoá chọn (${selected.length})`}
           </button>
           <button
             onClick={() => navigate("/admin/products/trash")}
@@ -1095,6 +1563,8 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
                   <th align="left">ID</th>
                   <th align="left">Tên</th>
                   <th align="left">Slug</th>
+                  <th align="left">Thương hiệu</th> {/* ✅ NEW */}
+                  <th align="left">Danh mục</th>    {/* ✅ NEW */}
                   <th align="right">Giá gốc</th>
                   <th align="right">Giá sale</th>
                   <th align="right">Tồn kho (DB)</th>
@@ -1115,6 +1585,8 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
                     <td>{p.id}</td>
                     <td>{p.name}</td>
                     <td>{p.slug}</td>
+                    <td>{getBrandName(p)}</td>      {/* ✅ NEW */}
+                    <td>{getCategoryName(p)}</td>   {/* ✅ NEW */}
                     <td align="right">
                       ₫{(p.price_root || 0).toLocaleString("vi-VN")}
                     </td>
@@ -1166,16 +1638,16 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
                       </button>
                       <button
                         onClick={() => handleDelete(p.id)}
-                        disabled={deletingId === p.id}
+                        disabled={deletingId === p.id || deletingMany}
                         style={{
                           padding: "4px 10px",
                           background:
-                            deletingId === p.id ? "#ef9a9a" : "#c62828",
+                            deletingId === p.id || deletingMany ? "#ef9a9a" : "#c62828",
                           color: "#fff",
                           border: 0,
                           borderRadius: 6,
                           cursor:
-                            deletingId === p.id ? "not-allowed" : "pointer",
+                            deletingId === p.id || deletingMany ? "not-allowed" : "pointer",
                         }}
                       >
                         {deletingId === p.id ? "Đang xoá..." : "🗑 Xóa"}
@@ -1186,7 +1658,7 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
                 {!filtered.length && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={11}
                       align="center"
                       style={{ padding: 18, color: "#777" }}
                     >
@@ -1322,6 +1794,8 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
                 (Gốc: ₫{Number(viewItem.price_root ?? 0).toLocaleString("vi-VN")})
               </span>
             </p>
+            <p><b>Thương hiệu:</b> {getBrandName(viewItem)}</p>     {/* ✅ NEW */}
+            <p><b>Danh mục:</b> {getCategoryName(viewItem)}</p>     {/* ✅ NEW */}
             <p><b>Tồn kho (DB):</b> {getQty(viewItem).toLocaleString("vi-VN")}</p>
             <p><b>Trạng thái:</b> {viewItem.status}</p>
 
@@ -1381,6 +1855,158 @@ ${data.errors?.length ? `- Lỗi: ${data.errors.length} dòng` : ""}`
           </div>
         </div>
       )}
+
+      {/* Modal PREVIEW IMPORT */}
+      {previewOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1100,
+          }}
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              padding: 16,
+              width: "90vw",
+              maxWidth: 1200,
+              maxHeight: "92vh",
+              overflow: "hidden",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 800 }}>
+                📥 Xem trước Import — {originalFile?.name || "chưa đặt tên"}
+              </h2>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={showOnlyErrors}
+                    onChange={(e) => setShowOnlyErrors(e.target.checked)}
+                  />
+                  Chỉ hiển thị dòng lỗi
+                </label>
+                <button
+                  onClick={() => setPreviewOpen(false)}
+                  style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" }}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+
+            <div style={{ margin: "8px 0", color: "#374151" }}>
+              <b>Tổng dòng:</b> {previewRows.length} •{" "}
+              <b>Lỗi:</b>{" "}
+              {previewRows.filter(r => r.errors?.length).length} •{" "}
+              <b>Hợp lệ:</b>{" "}
+              {previewRows.filter(r => !r.errors?.length).length}
+            </div>
+
+            <div style={{ height: "65vh", overflow: "auto", border: "1px solid #eee", borderRadius: 8 }}>
+              <table width="100%" cellPadding={6} style={{ borderCollapse: "collapse", background: "#fff" }}>
+                <thead style={{ position: "sticky", top: 0, background: "#f9fafb", zIndex: 1 }}>
+                  <tr>
+                    <th>#</th>
+                    <th>Lỗi</th>
+                    <th>Tên</th>
+                    <th>Slug</th>
+                    <th>Brand ID</th>
+                    <th>Category ID</th>
+                    <th>Giá gốc</th>
+                    <th>Giá sale</th>
+                    <th>Qty</th>
+                    <th>Status</th>
+                    <th>Thumbnail URL</th>
+                    <th>Mô tả</th>
+                    <th>Chi tiết</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showOnlyErrors ? previewRows.filter(r => r.errors?.length) : previewRows).map((r, idx) => {
+                    const hasErr = r.errors?.length > 0;
+                    return (
+                      <tr key={idx} style={{ borderTop: "1px solid #f0f0f0", background: hasErr ? "#fff7f7" : "#fff" }}>
+                        <td>{idx + 1}</td>
+                        <td style={{ minWidth: 180, color: hasErr ? "#b91c1c" : "#059669" }}>
+                          {hasErr ? r.errors.join("; ") : "OK"}
+                        </td>
+                        <td><input value={r.data.name ?? ""} onChange={(e)=>updateCell(idx, "name", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input value={r.data.slug ?? ""} onChange={(e)=>updateCell(idx, "slug", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input value={r.data.brand_id ?? ""} onChange={(e)=>updateCell(idx, "brand_id", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input value={r.data.category_id ?? ""} onChange={(e)=>updateCell(idx, "category_id", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input type="number" value={r.data.price_root ?? 0} onChange={(e)=>updateCell(idx, "price_root", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input type="number" value={r.data.price_sale ?? 0} onChange={(e)=>updateCell(idx, "price_sale", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input type="number" value={r.data.qty ?? 0} onChange={(e)=>updateCell(idx, "qty", e.target.value)} style={cellInputStyle} /></td>
+                        <td>
+                          <select value={r.data.status ?? 1} onChange={(e)=>updateCell(idx, "status", Number(e.target.value))} style={cellInputStyle}>
+                            <option value={1}>1</option>
+                            <option value={0}>0</option>
+                          </select>
+                        </td>
+                        <td><input value={r.data.thumbnail_url ?? ""} onChange={(e)=>updateCell(idx, "thumbnail_url", e.target.value)} style={cellInputStyle} /></td>
+                        <td><input value={r.data.description ?? ""} onChange={(e)=>updateCell(idx, "description", e.target.value)} style={{...cellInputStyle, minWidth: 140}} /></td>
+                        <td><input value={r.data.detail ?? ""} onChange={(e)=>updateCell(idx, "detail", e.target.value)} style={{...cellInputStyle, minWidth: 140}} /></td>
+                        <td>
+                          <button onClick={() => deleteRow(idx)} style={{ padding: "4px 8px", border: 0, borderRadius: 6, background: "#ef4444", color: "#fff", cursor: "pointer" }}>
+                            Xoá
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {(!previewRows.length) && (
+                    <tr><td colSpan={14} align="center" style={{ padding: 16, color: "#6b7280" }}>Không có dòng nào</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+              <div style={{ color: hasAnyError(previewRows) ? "#b91c1c" : "#059669", fontWeight: 600 }}>
+                {hasAnyError(previewRows) ? "Còn lỗi — vui lòng sửa hoặc xoá dòng lỗi." : "Dữ liệu hợp lệ — có thể Import."}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    if (!window.confirm("Xoá toàn bộ các dòng đang preview?")) return;
+                    setPreviewRows([]);
+                  }}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
+                >
+                  🧹 Xoá tất cả
+                </button>
+                <button
+                  onClick={confirmImportValidRows}
+                  disabled={!previewRows.some(r => !r.errors?.length) || importing}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "1px solid #10b981",
+                    background: previewRows.some(r => !r.errors?.length) && !importing ? "#10b981" : "#a7f3d0",
+                    color: "#fff",
+                    cursor: previewRows.some(r => !r.errors?.length) && !importing ? "pointer" : "not-allowed",
+                    fontWeight: 700,
+                  }}
+                >
+                  {importing ? "Đang import…" : "✅ Xác nhận Import (chỉ dòng hợp lệ)"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1407,3 +2033,12 @@ function btnNumber(active) {
     minWidth: 40,
   };
 }
+
+// style input nhỏ gọn cho ô trong bảng preview
+const cellInputStyle = {
+  width: 140,
+  padding: "6px 8px",
+  borderRadius: 6,
+  border: "1px solid #e5e7eb",
+  background: "#fff",
+};

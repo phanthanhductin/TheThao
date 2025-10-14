@@ -1130,7 +1130,7 @@ export default function ProductDetail({ addToCart }) {
           <div className="rel-title">Sản phẩm liên quan</div>
           <div className="rel-grid">
             {related.map((r) => (
-              <Link key={r.id} to={`/product/${r.id}`} className="rel-card">
+           <Link key={r.id} to={`/products/${r.id}`} className="rel-card">
                 <img
                   src={r.thumbnail_url || r.thumbnail || PLACEHOLDER}
                   onError={(e) => (e.currentTarget.src = PLACEHOLDER)}

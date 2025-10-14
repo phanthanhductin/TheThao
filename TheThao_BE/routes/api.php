@@ -15,14 +15,47 @@ use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\StockController;
-use App\Http\Controllers\Api\AIController;
-use App\Http\Controllers\Api\Admin\ProductImportController;
+use App\Http\Controllers\Api\CouponController; // thêm dòng use ở đầu file
+use App\Http\Controllers\Api\AIChatController; // thêm dòng use
+use App\Http\Controllers\Api\ProductImportController;
+
+use App\Http\Controllers\Api\AdminDashboardController;
+
+Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+Route::get('dashboard/overview', [AdminDashboardController::class, 'overview']);
+});
+
+
+
+/* =======================
+   ===== WISHLIST =====
+   ======================= */
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/wishlist', [WishlistController::class, 'index']);
+    Route::post('/wishlist/toggle/{id}', [WishlistController::class, 'toggle']);
+    Route::delete('/wishlist/clear', [WishlistController::class, 'clear']);
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* =======================
    ===== IMPORT ADMIN =====
    ======================= */
-Route::middleware(['auth:sanctum', 'abilities:admin'])->group(function () {
-    Route::post('/admin/products/import', [ProductImportController::class, 'import']);
+Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+  Route::post('/products/import', [ProductImportController::class, 'import']);
+  Route::get('/products/export', [ProductImportController::class, 'export']);
 });
 
 /* =======================
@@ -67,8 +100,29 @@ Route::post('/payments/momo/ipn', [PaymentController::class, 'ipn']);
 Route::get('/payments/momo/return', [PaymentController::class, 'return']);
 Route::get('/payments/momo/check', [PaymentController::class, 'check']);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ===== AI (PUBLIC) =====
-Route::post('/ai/chat', [AIController::class, 'chat']);
+
+Route::post('/ai/chat', [AIChatController::class, 'chat']);
+
+
+
+// === COUPONS (PUBLIC) ===
+Route::get('/coupons', [CouponController::class, 'index']);
+Route::post('/coupons/validate', [CouponController::class, 'validateCode']);
 
 /* ===========================
    ===== AUTH CUSTOMER =====
@@ -91,7 +145,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{id}/reviews', [ReviewController::class, 'store']);
     Route::put('/reviews/{rid}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{rid}', [ReviewController::class, 'destroy']);
+    
 });
+
 /* ===========================
    ===== ADMIN PANEL =====
    =========================== */
@@ -136,4 +192,6 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('stock-movements', [StockController::class, 'adminIndex']);
     Route::post('stock-movements', [StockController::class, 'store']);
     Route::get('stock/summary', [StockController::class, 'summary']);
+    Route::get('/admin/stock/products', [\App\Http\Controllers\Api\StockController::class, 'allProducts']);
+
 });

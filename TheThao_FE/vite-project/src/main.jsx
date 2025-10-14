@@ -304,8 +304,10 @@ import AdminPostEdit from "./pages/Admin/Post/edit.jsx";
 import AdminContacts from "./pages/Admin/Contact/Contacts.jsx";
 import TrashProducts from "./pages/Admin/Product/TrashProducts.jsx";
 import StockMovements from "./pages/Admin/StockMovements";
-// import Assistant from "./pages/Customers/Assistant";
 import FloatingAIWidget from "./components/FloatingAIWidget";
+
+
+
 
 /* =============================
    🧩 CUSTOMER LAYOUT GẮN TRỰC TIẾP TẠI ĐÂY
@@ -464,7 +466,6 @@ function CustomerLayout() {
           <NavLink to="/contact" className="navlink">
             Liên hệ
           </NavLink>
-          {/* <NavLink to="/assistant" className="navlink">AI</NavLink> */}
         </nav>
 
         <div className="right">
@@ -600,6 +601,25 @@ function App() {
     });
     toast.success("Đã thêm vào giỏ hàng 🏀");
   };
+// ✅ Thêm vào trong function App(), ngay dưới useEffect đang set localStorage
+useEffect(() => {
+  const syncFromLS = () => {
+    try {
+      const items = JSON.parse(localStorage.getItem("cart") || "[]");
+      setCart(Array.isArray(items) ? items : []);
+    } catch {
+      setCart([]);
+    }
+  };
+  const onStorage = (e) => { if (e?.key === "cart") syncFromLS(); };
+
+  window.addEventListener("cart:clear", syncFromLS);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener("cart:clear", syncFromLS);
+    window.removeEventListener("storage", onStorage);
+  };
+}, [setCart]);
 
   return (
     <Routes>
@@ -630,8 +650,9 @@ function App() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/momo-return" element={<MomoReturn />} />
         <Route path="/admin/categories/trash" element={<CategoryTrash />} />
+        
         {/* các route khác */}
-        {/* <Route path="/assistant" element={<Assistant />} /> */}
+        
 
 
         <Route path="/products/:id/reviews" element={<ReviewSection />} />
@@ -682,8 +703,7 @@ function App() {
 }
 ReactDOM.createRoot(document.getElementById("root")).render(
   <BrowserRouter>
-    <App />
-    {/* 👇 Nút tròn AI nổi toàn site */}
-    <FloatingAIWidget />
+    <App />    <FloatingAIWidget />
   </BrowserRouter>
 );
+// import FloatingAIWidget from "./components/FloatingAIWidget"; --- IGNORE ---

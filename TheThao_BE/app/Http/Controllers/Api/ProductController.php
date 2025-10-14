@@ -76,82 +76,110 @@ class ProductController extends Controller
     /* =====================================================
      *  PUBLIC APIs
      * ===================================================== */
-    public function index(Request $request)
-    {
-        $q = Product::with('brand:id,name')
-            ->select([
-                'id','name','slug','brand_id','category_id',
-                'price_root','price_sale', DB::raw('price_sale as price'),
-                'qty','thumbnail','status'
-            ]);
+ public function index(Request $request)
+{
+    $q = Product::with('brand:id,name')
+        ->select([
+            'id','name','slug','brand_id','category_id',
+            'price_root','price_sale', DB::raw('price_sale as price'),
+            'qty','thumbnail','status'
+        ]);
 
-        // --- Lọc ---
-        $kw = trim($request->query('keyword', $request->query('q', '')));
-        if ($kw !== '') {
-            $kwSlug = Str::slug($kw);
-            $catIds = Category::query()
-                ->where('name', 'like', "%{$kw}%")
-                ->orWhere('slug', 'like', "%{$kwSlug}%")
-                ->pluck('id');
-
-            if ($catIds->count() > 0) {
-                $q->whereIn('category_id', $catIds->all());
-            } else {
-                $q->where(function ($x) use ($kw, $kwSlug) {
-                    $x->where('name', 'like', "%{$kw}%")
-                      ->orWhere('slug', 'like', "%{$kwSlug}%");
-                });
-            }
+    /* ---- ⭐ Filter theo danh sách ids (ưu tiên cho wishlist) ---- */
+    $ids = null;
+    if ($request->filled('ids')) {
+        // chấp nhận "1,2,3" hoặc mảng ids[]
+        $ids = $request->query('ids');
+        if (is_string($ids)) {
+            $ids = array_filter(array_map('intval', explode(',', $ids)));
+        } elseif (is_array($ids)) {
+            $ids = array_filter(array_map('intval', $ids));
         }
 
-        if ($request->filled('category_id')) {
-            $q->where('category_id', (int)$request->query('category_id'));
+        if (!empty($ids)) {
+            $q->whereIn('id', $ids);
+            // giữ thứ tự theo ids (MySQL/MariaDB)
+            $q->orderByRaw('FIELD(id,'.implode(',', $ids).')');
         }
+    }
 
-        $priceExpr = DB::raw('COALESCE(price_sale, price_root)');
-        if ($request->filled('min_price')) $q->where($priceExpr, '>=', (float)$request->query('min_price'));
-        if ($request->filled('max_price')) $q->where($priceExpr, '<=', (float)$request->query('max_price'));
+    // --- Lọc keyword / category / price / flags ---
+    $kw = trim($request->query('keyword', $request->query('q', '')));
+    if ($kw !== '') {
+        $kwSlug = Str::slug($kw);
+        $catIds = Category::query()
+            ->where('name', 'like', "%{$kw}%")
+            ->orWhere('slug', 'like', "%{$kwSlug}%")
+            ->pluck('id');
 
-        if ($request->boolean('only_sale')) {
-            $q->whereNotNull('price_root')
-              ->whereNotNull('price_sale')
-              ->whereColumn('price_sale', '<', 'price_root');
+        if ($catIds->count() > 0) {
+            $q->whereIn('category_id', $catIds->all());
+        } else {
+            $q->where(function ($x) use ($kw, $kwSlug) {
+                $x->where('name', 'like', "%{$kw}%")
+                  ->orWhere('slug', 'like', "%{$kwSlug}%");
+            });
         }
+    }
 
-        if ($request->boolean('in_stock')) {
-            $q->where(fn($x) => $x->where('qty', '>', 0)
-                                  ->orWhere('status', 'active')
-                                  ->orWhere('status', 1));
-        }
+    if ($request->filled('category_id')) {
+        $q->where('category_id', (int)$request->query('category_id'));
+    }
 
-        // --- Sort ---
-        [$field, $dir] = array_pad(explode(':', (string)$request->query('sort', 'created_at:desc'), 2), 2, 'asc');
+    $priceExpr = DB::raw('COALESCE(price_sale, price_root)');
+    if ($request->filled('min_price')) $q->where($priceExpr, '>=', (float)$request->query('min_price'));
+    if ($request->filled('max_price')) $q->where($priceExpr, '<=', (float)$request->query('max_price'));
+
+    if ($request->boolean('only_sale')) {
+        $q->whereNotNull('price_root')
+          ->whereNotNull('price_sale')
+          ->whereColumn('price_sale', '<', 'price_root');
+    }
+
+    if ($request->boolean('in_stock')) {
+        $q->where(fn($x) => $x->where('qty', '>', 0)
+                              ->orWhere('status', 'active')
+                              ->orWhere('status', 1));
+    }
+
+    // --- Sort (chỉ áp dụng khi KHÔNG truyền ids) ---
+    if (empty($ids)) {
+        [$field, $dir] = array_pad(
+            explode(':', (string)$request->query('sort', 'created_at:desc'), 2),
+            2,
+            'asc'
+        );
         $dir = strtolower($dir) === 'desc' ? 'desc' : 'asc';
         if ($field === 'price')       $q->orderByRaw('COALESCE(price_sale, price_root) ' . $dir);
         elseif ($field === 'name')    $q->orderBy('name', $dir);
         elseif ($field === 'created_at') $q->orderBy('created_at', $dir);
         else                          $q->orderBy('id', 'desc');
-
-        $perPage = max(1, min(100, (int)$request->query('per_page', 12)));
-        $products = $q->paginate($perPage);
-
-        // Accessor trong Model sẽ tự sinh thumbnail_url đúng
-        return $products->makeHidden(['brand','brand_id']);
     }
 
-    public function show($id)
-    {
-        $p = Product::with('brand:id,name')
-            ->select([
-                'id','name','slug','brand_id','category_id',
-                'price_root','price_sale', DB::raw('price_sale as price'),
-                'qty','status','thumbnail','description','detail'
-            ])
-            ->find($id);
+    // Nếu có ids mà chưa truyền per_page → mặc định = số lượng ids (để trả về đủ)
+    $defaultPerPage = (!empty($ids) ? count($ids) : 12);
+    $perPage = max(1, min(100, (int)$request->query('per_page', $defaultPerPage)));
 
-        if (!$p) return response()->json(['message' => 'Not found'], 404);
-        return $p->makeHidden(['brand','brand_id']);
-    }
+    $products = $q->paginate($perPage);
+
+    // Accessor trong Model sẽ tự sinh thumbnail_url đúng
+    return $products->makeHidden(['brand','brand_id']);
+}
+
+
+    // public function show($id)
+    // {
+    //     $p = Product::with('brand:id,name')
+    //         ->select([
+    //             'id','name','slug','brand_id','category_id',
+    //             'price_root','price_sale', DB::raw('price_sale as price'),
+    //             'qty','status','thumbnail','description','detail'
+    //         ])
+    //         ->find($id);
+
+    //     if (!$p) return response()->json(['message' => 'Not found'], 404);
+    //     return $p->makeHidden(['brand','brand_id']);
+    // }
 
     public function byCategory($id)
     {
@@ -186,20 +214,74 @@ class ProductController extends Controller
         return $products->makeHidden(['brand','brand_id']);
     }
 
-    public function adminShow($id)
-    {
-        $p = Product::with('brand:id,name')
-            ->select([
-                'id','name','slug','brand_id','category_id',
-                'price_root','price_sale', DB::raw('COALESCE(price_sale, price_root) as price'),
-                'qty','status','thumbnail','description','detail',
-                'created_at','updated_at'
-            ])
-            ->find($id);
+    // public function adminShow($id)
+    // {
+    //     $p = Product::with('brand:id,name')
+    //         ->select([
+    //             'id','name','slug','brand_id','category_id',
+    //             'price_root','price_sale', DB::raw('COALESCE(price_sale, price_root) as price'),
+    //             'qty','status','thumbnail','description','detail',
+    //             'created_at','updated_at'
+    //         ])
+    //         ->find($id);
 
-        if (!$p) return response()->json(['message' => 'Product not found'], 404);
-        return response()->json(['message' => 'OK', 'data' => $p]);
-    }
+    //     if (!$p) return response()->json(['message' => 'Product not found'], 404);
+    //     return response()->json(['message' => 'OK', 'data' => $p]);
+    // }
+
+
+
+
+
+public function show($id)
+{
+    $builder = Product::with('brand:id,name')
+        ->select([
+            'id','name','slug','brand_id','category_id',
+            'price_root','price_sale', DB::raw('price_sale as price'),
+            'qty','status','thumbnail','description','detail'
+        ]);
+
+    $p = is_numeric($id)
+        ? $builder->find($id)
+        : $builder->where('slug', $id)->first();
+
+    if (!$p) return response()->json(['message' => 'Not found'], 404);
+
+    $data = $p->makeHidden(['brand_id'])
+              ->append(['thumbnail_url','brand_name'])
+              ->toArray();
+
+    $data['description'] = (string)($data['description'] ?? '');
+    $data['detail']      = (string)($data['detail'] ?? '');
+
+    return response()->json($data);
+}
+
+
+public function adminShow($id)
+{
+    $p = Product::with('brand:id,name')
+        ->select([
+            'id','name','slug','brand_id','category_id',
+            'price_root','price_sale', DB::raw('COALESCE(price_sale, price_root) as price'),
+            'qty','status','thumbnail','description','detail',
+            'created_at','updated_at'
+        ])
+        ->find($id);
+
+    if (!$p) return response()->json(['message' => 'Product not found'], 404);
+
+    // đảm bảo có accessor & field mô tả/chi tiết dạng string
+    $data = $p->makeHidden(['brand_id'])
+              ->append(['thumbnail_url','brand_name'])
+              ->toArray();
+
+    $data['description'] = (string)($data['description'] ?? '');
+    $data['detail']      = (string)($data['detail'] ?? '');
+
+    return response()->json(['message' => 'OK', 'data' => $data]);
+}
 
     public function store(Request $request)
     {
