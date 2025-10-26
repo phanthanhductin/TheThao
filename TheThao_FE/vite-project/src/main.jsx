@@ -274,17 +274,16 @@ import About from "./pages/Customers/about";
 import ForgotPassword from "./pages/Customers/ForgotPassword";
 import OrderTracking from "./pages/Customers/OrderTracking";
 import Account from "./pages/Customers/Account";
-import ProductsPage from "./pages/Customers/Products";
 import News from "./pages/Customers/News";
 import NewsDetail from "./pages/Customers/NewsDetail";
 import WishlistPage from "./pages/Customers/Wishlist";
 import MomoReturn from "./pages/Customers/MomoReturn";
 import CategoryTrash from "./pages/Admin/Category/CategoryTrash.jsx";
+import QuickViewPage from "./pages/Customers/QuickViewPage.jsx"; // ✅ chỉ 1 lần
 
 import ReviewSection from "./pages/Customers/ReviewSection";
 import CanceledOrders from "./pages/Customers/CanceledOrders.jsx";
 import MyOrders from "./pages/Customers/MyOrders";
-
 /* ===== Admin pages/layout ===== */
 import AdminLayout from "./layouts/AdminLayout";
 import Dashboard from "./pages/Admin/Dashboard";
@@ -305,10 +304,7 @@ import AdminContacts from "./pages/Admin/Contact/Contacts.jsx";
 import TrashProducts from "./pages/Admin/Product/TrashProducts.jsx";
 import StockMovements from "./pages/Admin/StockMovements";
 import FloatingAIWidget from "./components/FloatingAIWidget";
-
-
-
-
+import Coupons from "./pages/Admin/Coupons.jsx";
 /* =============================
    🧩 CUSTOMER LAYOUT GẮN TRỰC TIẾP TẠI ĐÂY
    ============================= */
@@ -447,25 +443,16 @@ function CustomerLayout() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-orange-50/50">
-      {/* Header */}
       <header className="header">
         <div className="brand">
           🏋️‍♂️ <span className="tracking-tight">SportShop</span>
         </div>
 
         <nav className="mainnav">
-          <NavLink to="/" end className="navlink">
-            Trang chủ
-          </NavLink>
-          <NavLink to="/products" className="navlink">
-            Sản phẩm
-          </NavLink>
-          <NavLink to="/news" className="navlink">
-            Tin tức
-          </NavLink>
-          <NavLink to="/contact" className="navlink">
-            Liên hệ
-          </NavLink>
+          <NavLink to="/" end className="navlink">Trang chủ</NavLink>
+          <NavLink to="/products" className="navlink">Sản phẩm</NavLink>
+          <NavLink to="/news" className="navlink">Tin tức</NavLink>
+          <NavLink to="/contact" className="navlink">Liên hệ</NavLink>
         </nav>
 
         <div className="right">
@@ -473,24 +460,18 @@ function CustomerLayout() {
             <UserMenu />
           ) : (
             <>
-              <NavLink to="/register" className="navlink">
-                Đăng ký
-              </NavLink>
-              <NavLink to="/login" className="navlink">
-                Đăng nhập
-              </NavLink>
+              <NavLink to="/register" className="navlink">Đăng ký</NavLink>
+              <NavLink to="/login" className="navlink">Đăng nhập</NavLink>
             </>
           )}
           <MiniCart />
         </div>
       </header>
 
-      {/* Nội dung */}
       <main className="flex-1 p-4 max-w-6xl mx-auto w-full">
         <Outlet />
       </main>
 
-      {/* Footer */}
       <footer className="px-4 py-4 border-t text-sm text-gray-600 bg-white/80 backdrop-blur">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <span>© {new Date().getFullYear()} SportShop</span>
@@ -500,7 +481,6 @@ function CustomerLayout() {
 
       <ToastContainer position="top-right" autoClose={2000} />
 
-      {/* Style nội tuyến */}
       <style>{`
         :root { --e: cubic-bezier(.2,.8,.2,1); }
         .header{padding:12px 16px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(8px);box-shadow:0 1px 4px rgba(0,0,0,.05);}
@@ -535,7 +515,7 @@ function RequireAdmin({ children }) {
   let user = null;
   try {
     user = JSON.parse(localStorage.getItem(ADMIN_USER_KEY) || "null");
-  } catch { }
+  } catch {}
 
   const role = String(user?.roles || user?.role || "").toLowerCase();
 
@@ -583,7 +563,7 @@ function App() {
         ? cart.reduce((s, i) => s + (Number(i?.qty) || 1), 0)
         : 0;
       window.dispatchEvent(new CustomEvent("cart-changed", { detail: total }));
-    } catch { }
+    } catch {}
   }, [cart]);
 
   const addToCart = (product) => {
@@ -601,25 +581,67 @@ function App() {
     });
     toast.success("Đã thêm vào giỏ hàng 🏀");
   };
-// ✅ Thêm vào trong function App(), ngay dưới useEffect đang set localStorage
-useEffect(() => {
-  const syncFromLS = () => {
-    try {
-      const items = JSON.parse(localStorage.getItem("cart") || "[]");
-      setCart(Array.isArray(items) ? items : []);
-    } catch {
-      setCart([]);
-    }
-  };
-  const onStorage = (e) => { if (e?.key === "cart") syncFromLS(); };
 
-  window.addEventListener("cart:clear", syncFromLS);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener("cart:clear", syncFromLS);
-    window.removeEventListener("storage", onStorage);
-  };
-}, [setCart]);
+  // Sync cart khi tab khác thay đổi
+  useEffect(() => {
+    const syncFromLS = () => {
+      try {
+        const items = JSON.parse(localStorage.getItem("cart") || "[]");
+        setCart(Array.isArray(items) ? items : []);
+      } catch {
+        setCart([]);
+      }
+    };
+    const onStorage = (e) => { if (e?.key === "cart") syncFromLS(); };
+
+    window.addEventListener("cart:clear", syncFromLS);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("cart:clear", syncFromLS);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [setCart]);
+
+  // ✅ Nhận event từ QuickViewPage để thêm giỏ theo logic sẵn có
+  useEffect(() => {
+    const onQVAdd = (e) => {
+      const { prod, variant } = e.detail || {};
+      if (!prod || !variant) return;
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        alert("Vui lòng đăng nhập để thêm sản phẩm!");
+        navigate("/login");
+        return;
+      }
+
+      const item = {
+        id: prod.id,
+        name: prod.name,
+        thumbnail_url: prod.thumbnail_url || (prod.images?.[0] || ""),
+        price: Number(prod.price || 0),
+        variant_id: variant.id,
+        size: variant.size,
+        color: variant.color,
+        qty: 1,
+      };
+      setCart((prev) => {
+        const exists = prev.find(
+          (i) => i.id === item.id && i.variant_id === item.variant_id
+        );
+        return exists
+          ? prev.map((i) =>
+              i.id === item.id && i.variant_id === item.variant_id
+                ? { ...i, qty: i.qty + 1 }
+                : i
+            )
+          : [...prev, item];
+      });
+      toast.success("Đã thêm vào giỏ hàng 🏀");
+    };
+    window.addEventListener("qv:add", onQVAdd);
+    return () => window.removeEventListener("qv:add", onQVAdd);
+  }, [navigate, setCart]);
 
   return (
     <Routes>
@@ -627,17 +649,14 @@ useEffect(() => {
       <Route element={<CustomerLayout />}>
         <Route index element={<Home />} />
         <Route path="/products" element={<Products addToCart={addToCart} />} />
-        <Route
-          path="/category/:id"
-          element={<CategoryProducts addToCart={addToCart} />}
-        />
+        <Route path="/category/:id" element={<CategoryProducts addToCart={addToCart} />} />
         <Route path="/categories/:id" element={<RedirectCategory />} />
-        <Route
-          path="/products/:id"
-          element={<ProductDetail addToCart={addToCart} />}
-        />
-        <Route path="/checkout" element={<Checkout setCart={setCart} />}
-        />
+        <Route path="/products/:id" element={<ProductDetail addToCart={addToCart} />} />
+        <Route path="/checkout" element={<Checkout setCart={setCart} />} />
+
+        {/* ✅ Quick View: chỉ 1 route */}
+        <Route path="/quick/:id" element={<QuickViewPage />} />
+
         <Route path="/cart" element={<Cart cart={cart} setCart={setCart} />} />
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
@@ -650,21 +669,12 @@ useEffect(() => {
         <Route path="/contact" element={<Contact />} />
         <Route path="/momo-return" element={<MomoReturn />} />
         <Route path="/admin/categories/trash" element={<CategoryTrash />} />
-        
-        {/* các route khác */}
-        
-
-
+<Route path="/admin/coupons" element={<Coupons />} /> 
+        {/* khác */}
         <Route path="/products/:id/reviews" element={<ReviewSection />} />
         <Route path="/canceled-orders" element={<CanceledOrders />} />
         <Route path="/my-orders" element={<MyOrders />} />
-
       </Route>
-
-
-
-
-
 
       {/* ADMIN */}
       <Route path="/admin/login" element={<AdminLogin />} />
@@ -701,9 +711,10 @@ useEffect(() => {
     </Routes>
   );
 }
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <BrowserRouter>
-    <App />    <FloatingAIWidget />
+    <App />
+    <FloatingAIWidget />
   </BrowserRouter>
 );
-// import FloatingAIWidget from "./components/FloatingAIWidget"; --- IGNORE ---

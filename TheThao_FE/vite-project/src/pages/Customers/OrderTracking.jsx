@@ -1,3 +1,655 @@
+// // src/pages/Customers/OrderTracking.jsx
+// import { useEffect, useMemo, useRef, useState } from "react";
+// import { useNavigate } from "react-router-dom";
+
+// const API_BASE = "http://127.0.0.1:8000/api";
+// const PLACEHOLDER = "https://placehold.co/80x60?text=No+Img";
+
+// export const STATUS_STEPS = [
+//   { key: "pending",   label: "Chờ xác nhận" },
+//   { key: "confirmed", label: "Đã xác nhận" },
+//   { key: "ready",     label: "Chờ vận chuyển" },
+//   { key: "shipping",  label: "Đang giao" },
+//   { key: "delivered", label: "Giao thành công" },
+// ];
+
+// const ACTIVE_POLL = new Set(["confirmed", "ready", "shipping"]);
+
+// const normalizeStatusKey = (s) => {
+//   const str = String(s ?? "").toLowerCase().trim();
+//   const map = {
+//     "0":"pending","1":"confirmed","2":"ready","3":"shipping","4":"delivered",
+//     pending:"pending",confirmed:"confirmed",ready:"ready",shipping:"shipping",
+//     shipped:"shipping",delivered:"delivered",paid:"confirmed",
+//     processing:"ready",completed:"delivered",success:"delivered",
+//     canceled:"canceled",cancelled:"canceled",
+//   };
+//   return map[str] || "pending";
+// };
+
+// export default function OrderTracking() {
+//   const navigate = useNavigate();
+
+//   const [code, setCode] = useState(
+//     () =>
+//       new URLSearchParams(location.search).get("code") ||
+//       localStorage.getItem("last_order_code") ||
+//       ""
+//   );
+//   const [phone, setPhone] = useState("");
+//   const [order, setOrder] = useState(null);
+//   const [loading, setLoading] = useState(false);
+//   const [err, setErr] = useState("");
+
+//   // Modal hủy đơn
+//   const [showCancelModal, setShowCancelModal] = useState(false);
+//   const [cancelReason, setCancelReason] = useState("");
+//   const [canceling, setCanceling] = useState(false);
+//   const [cancelError, setCancelError] = useState("");
+
+//   const pollRef = useRef(null);
+
+//   const fmt = (v) => (v == null ? 0 : Number(v)).toLocaleString("vi-VN");
+//   const fmtTime = (t) =>
+//     t ? (isNaN(new Date(t)) ? String(t) : new Date(t).toLocaleString("vi-VN")) : "";
+
+//   const statusKey = useMemo(() => {
+//     const raw =
+//       order?.status_step ?? order?.step_code ?? order?.status_key ?? order?.status;
+//     return normalizeStatusKey(raw);
+//   }, [order]);
+
+//   const currentStep = useMemo(
+//     () => Math.max(0, ["pending", "confirmed", "ready", "shipping", "delivered"].indexOf(statusKey)),
+//     [statusKey]
+//   );
+
+//   const customerName = useMemo(() => {
+//     if (!order) return "—";
+//     const localUser = (() => {
+//       try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
+//     })();
+//     return (
+//       order?.shipping_name ||
+//       order?.customer_name ||
+//       order?.customer?.name ||
+//       order?.user?.name ||
+//       order?.recipient_name ||
+//       localUser?.name ||
+//       "—"
+//     );
+//   }, [order]);
+
+//   // const money = useMemo(() => {
+//   //   if (!order) return { subtotal: 0, shippingFee: 0, discount: 0, total: 0 };
+//   //   const items = (order.items || order.order_items || []).map((it) => ({
+//   //     qty: it.qty ?? it.quantity ?? 0,
+//   //     price: Number(it.price ?? 0),
+//   //   }));
+//   //   const subtotal =
+//   //     order.subtotal != null
+//   //       ? Number(order.subtotal)
+//   //       : items.reduce((s, it) => s + it.qty * it.price, 0);
+//   //   const shippingFee = Number(order.shipping_fee ?? 0);
+//   //   const discount = Number(order.discount ?? 0);
+//   //   const total = order.total != null ? Number(order.total) : subtotal + shippingFee - discount;
+//   //   return { subtotal, shippingFee, discount, total };
+//   // }, [order]);
+
+// const money = useMemo(() => {
+//   if (!order) return { subtotal: 0, shippingFee: 0, discount: 0, total: 0 };
+
+//   const items = (order.items || order.order_items || []).map((it) => ({
+//     qty: it.qty ?? it.quantity ?? 0,
+//     price: Number(it.price ?? 0),
+//   }));
+
+//   const subtotal =
+//     order.subtotal != null
+//       ? Number(order.subtotal)
+//       : items.reduce((s, it) => s + it.qty * it.price, 0);
+
+//   const shippingFee = Number(order.shipping_fee ?? 0);
+
+//   // 🔥 Ưu tiên giảm giá từ coupon
+//   // const couponDiscount =
+//   //   Number(order.coupon_discount ?? order.coupon_amount ?? 0) ||
+//   //   (order.coupon?.discount_value ?? 0);
+
+//   // const baseDiscount = Number(order.discount ?? 0);
+//   // const discount = couponDiscount > 0 ? couponDiscount : baseDiscount;
+// // Ưu tiên lấy từ cột discount trong DB
+// const discount =
+//   Number(order.discount ?? 0) ||
+//   Number(order.coupon_discount ?? order.coupon_amount ?? 0) ||
+//   (order.coupon?.discount_value ?? 0);
+
+//   const total =
+//     order.total != null
+//       ? Number(order.total)
+//       : subtotal + shippingFee - discount;
+
+//   return { subtotal, shippingFee, discount, total };
+// }, [order]);
+
+
+//   const timelineTimes = useMemo(
+//     () => ({
+//       pending: order?.created_at || order?.createdAt || order?.placed_at,
+//       confirmed: order?.confirmed_at || order?.paid_at,
+//       ready: order?.ready_at || order?.processing_at || order?.packed_at,
+//       shipping: order?.shipped_at,
+//       delivered: order?.delivered_at,
+//     }),
+//     [order]
+//   );
+
+//   const carrierName =
+//     order?.carrier || order?.shipping_provider || order?.courier;
+//   const trackingNo =
+//     order?.tracking_no ||
+//     order?.tracking_number ||
+//     order?.shipment?.tracking_number;
+
+//   const carrierTrackUrl = trackingNo
+//     ? ((n, c = (carrierName || "").toLowerCase()) =>
+//         c.includes("ghtk")
+//           ? `https://i.ghtk.vn/${n}`
+//           : c.includes("ghn")
+//           ? `https://donhang.ghn.vn/?order_code=${n}`
+//           : c.includes("viettel")
+//           ? `https://viettelpost.com.vn/tra-cuu-don-hang?code=${n}`
+//           : c.includes("vnpost")
+//           ? `https://www.vnpost.vn/tra-cuu-hanh-trinh/buu-pham?code=${n}`
+//           : c.includes("j&t") || c.includes("jnt")
+//           ? `https://jtexpress.vn/vi/tracking?billcode=${n}`
+//           : `https://www.google.com/search?q=${encodeURIComponent(
+//               `tra cứu vận đơn ${n}`
+//             )}`)(trackingNo)
+//     : "";
+
+//   const needsHydrate = (it) => {
+//     const hasName = !!(it.name || it.product?.name);
+//     const hasPrice =
+//       it.price != null ||
+//       it.product?.price != null ||
+//       it.product?.price_sale != null ||
+//       it.product?.price_root != null;
+//     const hasThumb =
+//       !!(it.thumbnail_url ||
+//       it.product_image ||
+//       it.image_url ||
+//       it.thumbnail ||
+//       it.product?.thumbnail_url ||
+//       it.product?.thumbnail);
+//     return !(hasName && hasPrice && hasThumb);
+//   };
+
+//   const fetchProductById = async (pid, signal) => {
+//     for (const url of [
+//       `${API_BASE}/products/${pid}`,
+//       `${API_BASE}/product/${pid}`,
+//       `${API_BASE}/items/${pid}`,
+//     ]) {
+//       try {
+//         const r = await fetch(url, { signal, headers: { Accept: "application/json" } });
+//         if (r.ok) {
+//           const d = await r.json();
+//           return d.data || d.product || d;
+//         }
+//       } catch {}
+//     }
+//     return null;
+//   };
+
+//   const hydrateItems = async (items, signal) => {
+//     if (!Array.isArray(items) || !items.length) return [];
+//     const cache = new Map();
+//     const get = async (pid) => {
+//       if (cache.has(pid)) return cache.get(pid);
+//       const p = await fetchProductById(pid, signal);
+//       cache.set(pid, p);
+//       return p;
+//     };
+//     const out = [];
+//     for (const it of items) {
+//       if (!needsHydrate(it)) { out.push(it); continue; }
+//       const pid = it.product_id || it.productId || it.product?.id;
+//       const p = pid ? await get(pid) : it.product || null;
+//       out.push({
+//         ...it,
+//         name: it.name || p?.name || `#${pid || it.id}`,
+//         price: it.price ?? p?.price_sale ?? p?.price_root ?? p?.price ?? 0,
+//         thumbnail_url:
+//           it.thumbnail_url ||
+//           it.product_image ||
+//           it.image_url ||
+//           it.thumbnail ||
+//           p?.thumbnail_url ||
+//           p?.image_url ||
+//           p?.thumbnail ||
+//           PLACEHOLDER,
+//       });
+//     }
+//     return out;
+//   };
+
+//   const fetchOrder = async (signal) => {
+//     if (!code.trim()) return;
+//     setLoading(true);
+//     setErr("");
+//     try {
+//       let o = null;
+
+//       try {
+//         const ra = await fetch(
+//           `${API_BASE}/orders/track?code=${encodeURIComponent(code)}${
+//             phone ? `&phone=${encodeURIComponent(phone)}` : ""
+//           }`,
+//           { signal, headers: { Accept: "application/json" } }
+//         );
+//         if (ra.ok) {
+//           const da = await ra.json();
+//           o = da.data || da.order || da;
+//         }
+//       } catch {}
+
+//       if (!o || !Array.isArray(o.items) || !o.items.length) {
+//         try {
+//           const rb = await fetch(`${API_BASE}/orders/${encodeURIComponent(code)}`, {
+//             signal,
+//             headers: { Accept: "application/json" },
+//           });
+//           if (rb.ok) {
+//             const db = await rb.json();
+//             const ob = db.data || db.order || db;
+//             o = { ...(o || {}), ...ob, items: ob.items || o?.items || [] };
+//           }
+//         } catch {}
+//       }
+
+//       if (!o) throw new Error("Order not found");
+//       setOrder(o);
+
+//       const hydrated = await hydrateItems(o.items || o.order_items || [], signal);
+//       setOrder((prev) => ({ ...prev, items: hydrated }));
+//     } catch (e) {
+//       if (e.name !== "AbortError") {
+//         console.error(e);
+//         setErr("Không tìm thấy đơn hàng. Hãy kiểm tra mã đơn/số điện thoại.");
+//         setOrder(null);
+//       }
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   const onSearch = (e) => {
+//     e.preventDefault();
+//     const ac = new AbortController();
+//     fetchOrder(ac.signal);
+//     return () => ac.abort();
+//   };
+
+//   useEffect(() => {
+//     if (!statusKey || !ACTIVE_POLL.has(statusKey)) {
+//       clearInterval(pollRef.current);
+//       return;
+//     }
+//     pollRef.current = setInterval(() => {
+//       const ac = new AbortController();
+//       fetchOrder(ac.signal);
+//     }, 15000);
+//     return () => clearInterval(pollRef.current);
+//   }, [statusKey]);
+
+//   useEffect(() => {
+//     if (code) {
+//       const ac = new AbortController();
+//       fetchOrder(ac.signal);
+//       return () => ac.abort();
+//     }
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, []);
+
+//   const canCancel = order && ["pending", "confirmed"].includes(statusKey);
+
+//   // ==== Modal hủy đơn ====
+//   const openCancelModal = () => {
+//     setCancelReason("");
+//     setCancelError("");
+//     setShowCancelModal(true);
+//   };
+//   const closeCancelModal = () => {
+//     if (canceling) return;
+//     setShowCancelModal(false);
+//   };
+//   const submitCancel = async (e) => {
+//     e?.preventDefault();
+//     if (!order) return;
+//     setCanceling(true);
+//     setCancelError("");
+
+//     try {
+//       const payload = {
+//         code: order.code || order.id,
+//         reason: cancelReason || undefined,
+//       };
+
+//       const tries = [
+//         { url: `${API_BASE}/orders/${order.code || order.id}/cancel`, method: "POST", body: { reason: payload.reason } },
+//         { url: `${API_BASE}/orders/cancel`, method: "POST", body: payload },
+//         { url: `${API_BASE}/orders/${order.code || order.id}`, method: "PATCH", body: { status: "canceled", reason: payload.reason } },
+//       ];
+
+//       let ok = false;
+//       let lastRes = null;
+
+//       for (const t of tries) {
+//         try {
+//           const r = await fetch(t.url, {
+//             method: t.method,
+//             headers: { "Content-Type": "application/json", Accept: "application/json" },
+//             body: t.body ? JSON.stringify(t.body) : undefined,
+//           });
+//           lastRes = r;
+//           if (r.ok) { ok = true; break; }
+//         } catch {}
+//       }
+
+//       if (!ok) {
+//         let msg = "Không hủy được đơn. Vui lòng thử lại.";
+//         try {
+//           const j = await lastRes.json();
+//           msg = j.message || j.error || msg;
+//         } catch {}
+//         setCancelError(msg);
+//         return;
+//       }
+
+//       setOrder((p) => (p ? { ...p, status: "canceled", status_key: "canceled" } : p));
+//       alert("✅ Hủy đơn hàng thành công!");
+//       setShowCancelModal(false);
+//       navigate("/canceled-orders");
+//     } finally {
+//       setCanceling(false);
+//     }
+//   };
+
+//   const reorder = () => {
+//     if (!order) return;
+//     const src = order.items || order.order_items || [];
+//     const load = () => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } };
+//     const save = (v) => localStorage.setItem("cart", JSON.stringify(v));
+//     const cur = load(); const out = [...cur];
+//     for (const it of src) {
+//       const id = it.product_id || it.product?.id || it.id;
+//       if (!id) continue;
+//       const name  = it.name || it.product?.name || `#${id}`;
+//       const qty   = it.qty ?? it.quantity ?? 1;
+//       const price = Number(it.price ?? it.product?.price_sale ?? it.product?.price_root ?? it.product?.price ?? 0);
+//       const thumb = it.thumbnail_url || it.product_image || it.image_url || it.thumbnail || PLACEHOLDER;
+//       const idx = out.findIndex((x) => x.id === id);
+//       if (idx >= 0) out[idx].qty += qty; else out.push({ id, name, price, qty, thumbnail_url: thumb });
+//     }
+//     save(out);
+//     alert("🛒 Đã thêm lại các sản phẩm vào giỏ!");
+//     navigate("/cart");
+//   };
+
+//   const reviewFirst = () => {
+//     const it = (order?.items || order?.order_items || [])[0];
+//     const pid = it?.product_id || it?.productId || it?.product?.id;
+//     if (pid) navigate(`/products/${pid}/reviews`);
+//   };
+
+//   return (
+//     <div className="track-page">
+//       <div className="track-card">
+//         <div className="topbar">
+//           <button className="back-home" onClick={() => navigate("/")}>
+//             <span className="home-ico" aria-hidden>🏠</span> Về trang chủ
+//           </button>
+//         </div>
+
+//         <h2 className="track-title">📦 Theo dõi đơn hàng</h2>
+
+//         <form onSubmit={onSearch} className="track-form">
+//           <input
+//             className="track-input"
+//             placeholder="Nhập mã đơn (VD: 23 hoặc SV-2025-0001)"
+//             value={code}
+//             onChange={(e) => setCode(e.target.value)}
+//           />
+//           <input
+//             className="track-input"
+//             placeholder="Số điện thoại (không bắt buộc)"
+//             value={phone}
+//             onChange={(e) => setPhone(e.target.value)}
+//           />
+//           <button className="track-btn" type="submit" disabled={loading}>
+//             {loading ? "Đang tìm..." : "Tra cứu"}
+//           </button>
+//         </form>
+
+//         {err && <p className="track-error">❌ {err}</p>}
+//       </div>
+
+//       {order && (
+//         <div className="track-result">
+//           {/* Header */}
+//           <div className="order-head">
+//             <div className="order-left">
+//               <div className="order-code">
+//                 Mã đơn: <b>{order.code || order.id}</b>
+//                 <button
+//                   className="copy-btn"
+//                   onClick={() => navigator.clipboard.writeText(order.code || order.id)}
+//                 >
+//                   Sao chép
+//                 </button>
+//               </div>
+
+//               <div className="order-meta">
+//                 <span className="meta-chip">👤 {customerName}</span>
+//                 <span className="meta-chip total">Tổng: ₫{fmt(money.total)}</span>
+//                 {order?.updated_at && (
+//                   <span className="meta-chip muted">Cập nhật: {fmtTime(order.updated_at)}</span>
+//                 )}
+//               </div>
+//             </div>
+
+//             <div className="order-actions">
+//               {canCancel && (
+//                 <button
+//                   className="btn solid danger"
+//                   onClick={openCancelModal}
+//                   disabled={canceling}
+//                   title="Hủy đơn hàng"
+//                 >
+//                   {canceling ? "Đang hủy..." : "Hủy đơn"}
+//                 </button>
+//               )}
+//               {statusKey === "delivered" && (
+//                 <>
+//                   <button className="btn solid" onClick={reorder}>Mua lại</button>
+//                   <button className="btn outline" onClick={reviewFirst}>Đánh giá</button>
+//                 </>
+//               )}
+//             </div>
+
+//             <div className={`status-badge s-${statusKey}`}>
+//               {STATUS_STEPS.find((s) => s.key === statusKey)?.label ||
+//                 (statusKey === "canceled" ? "Đã hủy" : statusKey)}
+//             </div>
+//           </div>
+
+//           {/* Vận chuyển */}
+//           {(carrierName || trackingNo) && (
+//             <div className="panel">
+//               <h4>🚚 Vận chuyển</h4>
+//               <div className="ship-wrap">
+//                 <div><span>Đơn vị:</span> {carrierName || "—"}</div>
+//                 <div className="trackline">
+//                   <span>Mã vận đơn:</span>
+//                   <code className="code">{trackingNo || "—"}</code>
+//                   {trackingNo && (
+//                     <>
+//                       <button className="copy-btn" onClick={() => navigator.clipboard.writeText(trackingNo)}>
+//                         Copy
+//                       </button>
+//                       <a className="btn-link" href={carrierTrackUrl} target="_blank" rel="noreferrer">
+//                         Tra cứu
+//                       </a>
+//                     </>
+//                   )}
+//                 </div>
+//                 {order?.estimated_delivery && (
+//                   <div><span>Dự kiến giao:</span> {fmtTime(order.estimated_delivery)}</div>
+//                 )}
+//               </div>
+//             </div>
+//           )}
+
+//           {/* Timeline */}
+//           <div className="timeline">
+//             {STATUS_STEPS.map((s, i) => (
+//               <div key={s.key} className={`step ${i <= currentStep ? "done" : ""}`}>
+//                 <div className="dot" />
+//                 <div className="label">
+//                   {s.label}
+//                   {timelineTimes[s.key] && <div className="ts">{fmtTime(timelineTimes[s.key])}</div>}
+//                 </div>
+//               </div>
+//             ))}
+//           </div>
+
+//           {/* Info + money */}
+//           <div className="grid-two">
+//             <div className="panel">
+//               <h4>📍 Thông tin giao hàng</h4>
+//               <div className="info">
+//                 <div><span>Khách:</span> {customerName}</div>
+//                 <div><span>Điện thoại:</span> {order?.shipping_phone || order?.phone || "—"}</div>
+//                 <div><span>Địa chỉ:</span> {order?.shipping_address || order?.address || "—"}</div>
+//                 <div><span>Ghi chú:</span> {order?.note || "—"}</div>
+//               </div>
+//             </div>
+
+//             <div className="panel">
+//               <h4>💵 Thanh toán</h4>
+//               <div className="info">
+//                 <div><span>Tổng tiền hàng:</span> ₫{fmt(money.subtotal)}</div>
+//                 <div><span>Phí vận chuyển:</span> ₫{fmt(money.shippingFee)}</div>
+//                 {/* <div><span>Giảm giá:</span> -₫{fmt(money.discount)}</div>
+//                 <div className="total"><span>Phải trả:</span> ₫{fmt(money.total)}</div>
+//                 <div><span>Phương thức:</span> {order?.payment_method || "—"}</div> */}
+
+//                 <div><span>Giảm giá:</span> -₫{fmt(money.discount)}</div>
+// {(order?.coupon?.code || order?.coupon_code) && (
+//   <div><span>Mã giảm giá:</span> {order.coupon?.code || order.coupon_code}</div>
+// )}
+
+// <div className="total"><span>Phải trả:</span> ₫{fmt(money.total)}</div>
+// <div>
+//   <span>Phương thức:</span> 
+//   {order?.payment_method || order?.payment || order?.method || "—"}
+// </div>
+
+//               </div>
+//             </div>
+//           </div>
+
+//           {/* Items */}
+//           <div className="panel">
+//             <h4>🧺 Sản phẩm</h4>
+//             <div className="items">
+//               {(order.items || order.order_items || []).map((it) => (
+//                 <div key={it.id || `${it.product_id}-${it.variant_id || ""}`} className="item">
+//                   <img
+//                     src={it.thumbnail_url || it.product_image || it.image_url || it.thumbnail || PLACEHOLDER}
+//                     alt={it.name}
+//                     onError={(e) => (e.currentTarget.src = PLACEHOLDER)}
+//                   />
+//                   <div className="item-info">
+//                     <div className="item-name">{it.name}</div>
+//                     <div className="item-sub">SL: {it.qty ?? it.quantity ?? 0} × ₫{fmt(it.price)}</div>
+//                   </div>
+//                   <div className="item-total">₫{fmt((it.qty || it.quantity || 0) * (it.price || 0))}</div>
+
+//                   {statusKey === "delivered" && (
+//                     <div>
+//                       <button
+//                         className="btn outline"
+//                         onClick={() => {
+//                           const pid = it?.product_id || it?.productId || it?.product?.id;
+//                           if (pid) navigate(`/products/${pid}/reviews`);
+//                           else alert("Không tìm được product_id để mở form đánh giá.");
+//                         }}
+//                       >
+//                         Đánh giá
+//                       </button>
+//                     </div>
+//                   )}
+//                 </div>
+//               ))}
+//               {(!order.items || (order.items || order.order_items || []).length === 0) && (
+//                 <div className="muted">Không có sản phẩm.</div>
+//               )}
+//             </div>
+//           </div>
+
+//           {/* History */}
+//           {(order.history || order.logs) && (
+//             <div className="panel">
+//               <h4>🕑 Lịch sử đơn hàng</h4>
+//               <div className="history">
+//                 {(order.history || order.logs).map((h, i) => (
+//                   <div key={i} className="hrow">
+//                     <div className="hwhen">{fmtTime(h.at || h.created_at || h.time)}</div>
+//                     <div className="hstatus">{h.status || h.event}</div>
+//                     <div className="hmsg">{h.message || h.note || ""}</div>
+//                     {h.location && <div className="hloc">📍 {h.location}</div>}
+//                   </div>
+//                 ))}
+//               </div>
+//             </div>
+//           )}
+//         </div>
+//       )}
+
+//       {/* Modal xác nhận hủy */}
+//       {showCancelModal && (
+//         <div className="modal-backdrop" role="dialog" aria-modal="true">
+//           <div className="modal">
+//             <h3 className="modal-title">Xác nhận hủy đơn</h3>
+//             <p className="modal-text">
+//               Bạn có chắc muốn hủy đơn <b>{order?.code || order?.id}</b>?
+//             </p>
+
+//             <label className="modal-label">
+//               Lý do hủy (không bắt buộc)
+//               <textarea
+//                 className="modal-textarea"
+//                 value={cancelReason}
+//                 onChange={(e) => setCancelReason(e.target.value)}
+//                 placeholder="Ví dụ: Thay đổi sản phẩm, đặt nhầm..."
+//               />
+//             </label>
+
+//             {cancelError && <div className="modal-error">❌ {cancelError}</div>}
+
+//             <div className="modal-actions">
+//               <button className="btn outline" onClick={closeCancelModal} disabled={canceling}>
+//                 Bỏ qua
+//               </button>
+//               <button className="btn solid danger" onClick={submitCancel} disabled={canceling}>
+//                 {canceling ? "Đang hủy..." : "Xác nhận hủy"}
+//               </button>
+//             </div>
+//           </div>
+//         </div>
+//       )}
 // src/pages/Customers/OrderTracking.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -80,58 +732,62 @@ export default function OrderTracking() {
     );
   }, [order]);
 
-  // const money = useMemo(() => {
-  //   if (!order) return { subtotal: 0, shippingFee: 0, discount: 0, total: 0 };
-  //   const items = (order.items || order.order_items || []).map((it) => ({
-  //     qty: it.qty ?? it.quantity ?? 0,
-  //     price: Number(it.price ?? 0),
-  //   }));
-  //   const subtotal =
-  //     order.subtotal != null
-  //       ? Number(order.subtotal)
-  //       : items.reduce((s, it) => s + it.qty * it.price, 0);
-  //   const shippingFee = Number(order.shipping_fee ?? 0);
-  //   const discount = Number(order.discount ?? 0);
-  //   const total = order.total != null ? Number(order.total) : subtotal + shippingFee - discount;
-  //   return { subtotal, shippingFee, discount, total };
-  // }, [order]);
+  /* ---------- BỔ SUNG: parse giảm giá từ note khi API không có ---------- */
+  const parseVnMoney = (s) => {
+    if (!s) return 0;
+    const n = String(s).replace(/[^\d\-]/g, "");
+    // "-10000" -> 10000
+    const num = Number(n);
+    return isNaN(num) ? 0 : Math.abs(num);
+  };
 
-const money = useMemo(() => {
-  if (!order) return { subtotal: 0, shippingFee: 0, discount: 0, total: 0 };
+  const extractFromNote = (note) => {
+    const txt = String(note || "");
+    // ví dụ: "Tổng đơn: 90000 đ | Giảm: -10000 đ"
+    const mSubtotal = txt.match(/tổng\s*đơn[^0-9\-]*([0-9\.\,\s\-]+)/i);
+    const mDiscount = txt.match(/giảm[^0-9\-]*([0-9\.\,\s\-]+)/i);
+    return {
+      noteSubtotal: mSubtotal ? parseVnMoney(mSubtotal[1]) : 0,
+      noteDiscount: mDiscount ? parseVnMoney(mDiscount[1]) : 0,
+    };
+  };
+  /* --------------------------------------------------------------------- */
 
-  const items = (order.items || order.order_items || []).map((it) => ({
-    qty: it.qty ?? it.quantity ?? 0,
-    price: Number(it.price ?? 0),
-  }));
+  const money = useMemo(() => {
+    if (!order) return { subtotal: 0, shippingFee: 0, discount: 0, total: 0 };
 
-  const subtotal =
-    order.subtotal != null
-      ? Number(order.subtotal)
-      : items.reduce((s, it) => s + it.qty * it.price, 0);
+    // items -> tính tạm tính dự phòng
+    const items = (order.items || order.order_items || []).map((it) => ({
+      qty: it.qty ?? it.quantity ?? 0,
+      price: Number(it.price ?? 0),
+    }));
+    const itemsSubtotal = items.reduce((s, it) => s + it.qty * it.price, 0);
 
-  const shippingFee = Number(order.shipping_fee ?? 0);
+    // fallback từ note (nếu có)
+    const { noteSubtotal, noteDiscount } = extractFromNote(order.note);
 
-  // 🔥 Ưu tiên giảm giá từ coupon
-  // const couponDiscount =
-  //   Number(order.coupon_discount ?? order.coupon_amount ?? 0) ||
-  //   (order.coupon?.discount_value ?? 0);
+    const subtotal =
+      order.subtotal != null
+        ? Number(order.subtotal)
+        : noteSubtotal || itemsSubtotal;
 
-  // const baseDiscount = Number(order.discount ?? 0);
-  // const discount = couponDiscount > 0 ? couponDiscount : baseDiscount;
-// Ưu tiên lấy từ cột discount trong DB
-const discount =
-  Number(order.discount ?? 0) ||
-  Number(order.coupon_discount ?? order.coupon_amount ?? 0) ||
-  (order.coupon?.discount_value ?? 0);
+    const shippingFee = Number(order.shipping_fee ?? 0);
 
-  const total =
-    order.total != null
-      ? Number(order.total)
-      : subtotal + shippingFee - discount;
+    // Ưu tiên discount field từ API; nếu không có → lấy từ note
+    const discount =
+      Number(order.discount ?? 0) ||
+      Number(order.coupon_discount ?? order.coupon_amount ?? 0) ||
+      (order.coupon?.discount_value ?? 0) ||
+      noteDiscount ||
+      0;
 
-  return { subtotal, shippingFee, discount, total };
-}, [order]);
+    const total =
+      order.total != null
+        ? Number(order.total)
+        : subtotal + shippingFee - discount;
 
+    return { subtotal, shippingFee, discount, total };
+  }, [order]);
 
   const timelineTimes = useMemo(
     () => ({
@@ -541,21 +1197,17 @@ const discount =
               <div className="info">
                 <div><span>Tổng tiền hàng:</span> ₫{fmt(money.subtotal)}</div>
                 <div><span>Phí vận chuyển:</span> ₫{fmt(money.shippingFee)}</div>
-                {/* <div><span>Giảm giá:</span> -₫{fmt(money.discount)}</div>
-                <div className="total"><span>Phải trả:</span> ₫{fmt(money.total)}</div>
-                <div><span>Phương thức:</span> {order?.payment_method || "—"}</div> */}
 
                 <div><span>Giảm giá:</span> -₫{fmt(money.discount)}</div>
-{(order?.coupon?.code || order?.coupon_code) && (
-  <div><span>Mã giảm giá:</span> {order.coupon?.code || order.coupon_code}</div>
-)}
+                {(order?.coupon?.code || order?.coupon_code) && (
+                  <div><span>Mã giảm giá:</span> {order.coupon?.code || order.coupon_code}</div>
+                )}
 
-<div className="total"><span>Phải trả:</span> ₫{fmt(money.total)}</div>
-<div>
-  <span>Phương thức:</span> 
-  {order?.payment_method || order?.payment || order?.method || "—"}
-</div>
-
+                <div className="total"><span>Phải trả:</span> ₫{fmt(money.total)}</div>
+                <div>
+                  <span>Phương thức:</span>{" "}
+                  {order?.payment_method || order?.payment || order?.method || "—"}
+                </div>
               </div>
             </div>
           </div>
@@ -651,6 +1303,7 @@ const discount =
         </div>
       )}
 
+    
       {/* CSS */}
       <style>{`
         :root { --e:cubic-bezier(.2,.8,.2,1); }
